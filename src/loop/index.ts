@@ -1,5 +1,5 @@
 import type { LLMProvider, LLMMessage, LLMResponse, ToolUseBlock, ToolResultBlock } from "../llm/types.js";
-import type { WorkClawConfig } from "../config.js";
+import type { CashClawConfig } from "../config.js";
 import type { Task } from "../moltlaunch/types.js";
 import type { ToolContext } from "../tools/types.js";
 import { getToolDefinitions, executeTool } from "../tools/registry.js";
@@ -25,14 +25,14 @@ export interface LoopResult {
 export async function runAgentLoop(
   llm: LLMProvider,
   task: Task,
-  config: WorkClawConfig,
+  config: CashClawConfig,
 ): Promise<LoopResult> {
   const maxTurns = config.maxLoopTurns ?? DEFAULT_MAX_TURNS;
   const tools = getToolDefinitions(config);
   const toolCtx: ToolContext = { config, taskId: task.id };
 
   const messages: LLMMessage[] = [
-    { role: "system", content: buildSystemPrompt(config) },
+    { role: "system", content: buildSystemPrompt(config, task.task) },
     { role: "user", content: buildTaskContext(task) },
   ];
 

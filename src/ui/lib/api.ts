@@ -158,6 +158,7 @@ export const api = {
   getConfig: () => get<ConfigData>("/api/config"),
   getStats: () => get<StatsData>("/api/stats"),
   getKnowledge: () => get<{ entries: KnowledgeEntry[] }>("/api/knowledge"),
+  deleteKnowledge: (id: string) => post<{ ok: boolean }>("/api/knowledge/delete", { id }),
   getFeedback: () => get<{ entries: FeedbackEntry[] }>("/api/feedback"),
   stop: () => post<{ ok: boolean }>("/api/stop"),
   start: () => post<{ ok: boolean }>("/api/start"),

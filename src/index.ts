@@ -7,13 +7,13 @@ async function main() {
 
   // Open browser
   const url = "http://localhost:3777";
-  const { exec } = await import("node:child_process");
-  const cmd = process.platform === "darwin"
-    ? `open "${url}"`
+  const { execFile: execFileCb } = await import("node:child_process");
+  const opener = process.platform === "darwin"
+    ? "open"
     : process.platform === "win32"
-      ? `start "${url}"`
-      : `xdg-open "${url}"`;
-  exec(cmd, () => {});
+      ? "start"
+      : "xdg-open";
+  execFileCb(opener, [url], () => {});
 
   // Graceful shutdown
   const shutdown = () => {

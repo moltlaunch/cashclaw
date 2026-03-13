@@ -7,6 +7,18 @@ const execFileAsync = promisify(execFile);
 const FETCH_TIMEOUT = 60_000;
 const BALANCE_TIMEOUT = 15_000;
 
+const ALLOWED_DOMAINS = new Set([
+  "stableenrich.dev",
+  "twit.sh",
+  "stablestudio.dev",
+  "stableupload.dev",
+  "stableemail.dev",
+  "stablesocial.dev",
+  "stablephone.dev",
+  "stablejobs.dev",
+  "stabletravel.dev",
+]);
+
 async function runAgentCash<T>(
   args: string[],
   timeout: number,
@@ -57,6 +69,18 @@ export const agentcashFetch: Tool = {
   },
   async execute(input): Promise<ToolResult> {
     const url = input.url as string;
+    if (!url) return { success: false, data: "Missing required field: url" };
+
+    // Validate URL against allowlist to prevent SSRF
+    try {
+      const parsed = new URL(url);
+      if (!ALLOWED_DOMAINS.has(parsed.hostname)) {
+        return { success: false, data: `Blocked: domain ${parsed.hostname} not in allowlist` };
+      }
+    } catch {
+      return { success: false, data: `Invalid URL: ${url}` };
+    }
+
     const method = input.method as string | undefined;
     const body = input.body as Record<string, unknown> | undefined;
 
@@ -97,7 +121,7 @@ export const agentcashBalance: Tool = {
       required: [],
     },
   },
-  async execute(): Promise<ToolResult> {
+  async execute(_input, _ctx): Promise<ToolResult> {
     try {
       const result = await runAgentCash<AgentCashWalletInfo>(
         ["wallet", "info", "--format", "json"],

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { api, type StatusData, type ActivityEvent, type StatsData, type KnowledgeEntry, type FeedbackEntry, type WalletInfo, type ConfigData, type AgentCashBalance } from "../lib/api.js";
+import { api, type StatusData, type ActivityEvent, type StatsData, type KnowledgeEntry, type FeedbackEntry, type WalletInfo, type AgentCashBalance } from "../lib/api.js";
 
 function formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -7,7 +7,7 @@ function formatUptime(ms: number): string {
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 function formatTime(ts: number): string {
@@ -25,41 +25,50 @@ function formatRelative(ts: number): string {
 }
 
 const EVENT_COLORS: Record<string, string> = {
-  poll: "text-zinc-700",
-  loop_start: "text-sky-500",
-  loop_complete: "text-green-500",
-  tool_call: "text-amber-500",
+  poll: "text-zinc-600",
+  loop_start: "text-blue-400",
+  loop_complete: "text-emerald-400",
+  tool_call: "text-amber-400",
   feedback: "text-violet-400",
-  error: "text-red-500",
-  ws: "text-zinc-700",
-  study: "text-red-300",
+  error: "text-red-400",
+  ws: "text-zinc-600",
+  study: "text-amber-300",
 };
 
 const EVENT_LABELS: Record<string, string> = {
-  poll: "SYNC",
-  loop_start: "EXEC",
-  loop_complete: "DONE",
-  tool_call: "TOOL",
-  feedback: "RATE",
-  error: "ERR",
-  ws: "LINK",
-  study: "LEARN",
+  poll: "sync",
+  loop_start: "exec",
+  loop_complete: "done",
+  tool_call: "tool",
+  feedback: "rate",
+  error: "error",
+  ws: "link",
+  study: "learn",
+};
+
+const EVENT_BAR_COLORS: Record<string, string> = {
+  poll: "bg-zinc-700",
+  loop_start: "bg-blue-500",
+  loop_complete: "bg-emerald-500",
+  tool_call: "bg-amber-500",
+  feedback: "bg-violet-500",
+  error: "bg-red-500",
+  ws: "bg-zinc-700",
+  study: "bg-amber-400",
 };
 
 const FILTER_OPTIONS: { label: string; type: string | null }[] = [
-  { label: "ALL", type: null },
-  { label: "EXEC", type: "loop_start" },
-  { label: "TOOL", type: "tool_call" },
-  { label: "RATE", type: "feedback" },
-  { label: "ERR", type: "error" },
-  { label: "LEARN", type: "study" },
-  { label: "SYNC", type: "poll" },
+  { label: "All", type: null },
+  { label: "Exec", type: "loop_start" },
+  { label: "Tools", type: "tool_call" },
+  { label: "Errors", type: "error" },
+  { label: "Learn", type: "study" },
 ];
 
 const TOPIC_COLORS: Record<string, string> = {
-  analysis: "text-sky-400 bg-sky-500/10 border-sky-500/20",
-  research: "text-violet-400 bg-violet-500/10 border-violet-500/20",
-  simulate: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+  feedback_analysis: "bg-blue-500/15 text-blue-400 border-blue-500/20",
+  specialty_research: "bg-violet-500/15 text-violet-400 border-violet-500/20",
+  task_simulation: "bg-amber-500/15 text-amber-400 border-amber-500/20",
 };
 
 type IntelTab = "knowledge" | "feedback";
@@ -76,6 +85,7 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [eventFilter, setEventFilter] = useState<string | null>(null);
   const [intelTab, setIntelTab] = useState<IntelTab>("knowledge");
+  const [expandedKnowledge, setExpandedKnowledge] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +103,7 @@ export function Dashboard() {
         ]);
         if (!active) return;
         setStatus(s);
-        setEvents(t.events.reverse());
+        setEvents([...t.events].reverse());
         setStats(st);
         setWallet(w);
         setKnowledge(k.entries);
@@ -121,33 +131,37 @@ export function Dashboard() {
     };
   }, []);
 
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
   async function toggleAgent() {
     if (!status) return;
-    if (status.running) {
-      await api.stop();
-    } else {
-      await api.start();
+    setToggleError(null);
+    try {
+      if (status.running) {
+        await api.stop();
+      } else {
+        await api.start();
+      }
+    } catch (err) {
+      setToggleError(err instanceof Error ? err.message : "Action failed");
     }
   }
 
   if (error) {
     return (
-      <div className="text-center py-24">
-        <div className="w-16 h-16 border border-red-500/10 rounded-sm flex items-center justify-center mx-auto mb-4">
-          <div className="w-4 h-4 border border-zinc-800 rounded-sm" />
-        </div>
-        <p className="text-red-500/60 text-xs font-mono tracking-wider mb-1">SIGNAL LOST</p>
-        <p className="text-zinc-700 text-[10px] font-mono">{error}</p>
-        <p className="text-zinc-800 text-[10px] mt-6 font-mono tracking-wider">RUN: cashclaw start</p>
+      <div className="text-center py-32">
+        <p className="text-xl text-zinc-300 mb-2">Connection Lost</p>
+        <p className="text-sm text-zinc-600 mb-6">{error}</p>
+        <p className="text-sm text-zinc-600">Run <code className="text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded-sm font-mono text-xs">cashclaw start</code> to reconnect</p>
       </div>
     );
   }
 
   if (!status) {
     return (
-      <div className="text-center py-24">
-        <div className="w-6 h-6 border border-red-900/40 rounded-sm animate-spin mx-auto mb-4" />
-        <p className="text-red-500/40 text-[10px] font-mono tracking-[0.3em]">CONNECTING</p>
+      <div className="text-center py-32">
+        <div className="w-5 h-5 border-2 border-zinc-700 border-t-zinc-400 rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-zinc-600">Connecting...</p>
       </div>
     );
   }
@@ -166,134 +180,113 @@ export function Dashboard() {
     ? `${parseFloat(wallet.balance).toFixed(4)}`
     : "--";
 
-  const recentKnowledge = knowledge.slice(-5).reverse();
-  const recentFeedback = feedback.slice(-5).reverse();
+  const recentKnowledge = knowledge.slice(-10).reverse();
+  const recentFeedback = feedback.slice(-10).reverse();
 
   return (
-    <div className="space-y-4">
-      {/* Primary status panel */}
-      <div className="panel px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          {/* Status indicator */}
-          <div className="flex items-center gap-2.5">
-            <div className={`w-2 h-2 rounded-full ${
-              agentState === "studying"
-                ? "bg-red-300 glow-red animate-pulse"
-                : agentState === "active"
-                  ? "bg-red-500 glow-red"
-                  : "bg-zinc-800 border border-zinc-700"
-            }`} />
-            <span className={`text-[11px] font-mono font-bold tracking-[0.15em] ${
-              agentState === "studying"
-                ? "text-red-300"
-                : agentState === "active"
-                  ? "text-red-400"
-                  : "text-zinc-700"
-            }`}>
-              {agentState === "studying" ? "LEARNING" : agentState === "active" ? "ACTIVE" : "STANDBY"}
-            </span>
-          </div>
-
-          {/* Uptime readout */}
-          {status.running && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] text-zinc-700 font-mono">UP</span>
-              <span className="text-[11px] text-zinc-500 font-mono readout">{formatUptime(status.uptime)}</span>
-            </div>
-          )}
-
-          {/* Agent ID */}
-          <span className="text-[10px] text-zinc-800 font-mono hidden sm:inline">{status.agentId}</span>
-        </div>
-
-        <button
-          onClick={() => void toggleAgent()}
-          className={`px-4 py-1.5 rounded-sm text-[10px] font-mono font-bold tracking-[0.15em] transition-all duration-100 border ${
-            status.running
-              ? "text-zinc-600 border-zinc-800 hover:border-zinc-700 hover:text-zinc-500"
-              : "text-red-500 border-red-500/30 bg-red-500/5 hover:bg-red-500/10"
-          }`}
-        >
-          {status.running ? "HALT" : "ENGAGE"}
-        </button>
-      </div>
-
-      {/* Readout grid */}
-      <div className={`grid grid-cols-3 gap-1.5 ${agentCashEnabled ? "md:grid-cols-10" : "md:grid-cols-9"}`}>
-        <Readout label="OPS" value={String(status.activeTasks)} lit={status.activeTasks > 0} />
-        <Readout label="TIME" value={status.running ? formatUptime(status.uptime) : "--:--"} />
-        <Readout label="SYNC" value={status.lastPoll ? formatTime(status.lastPoll) : "--:--:--"} />
-        <Readout label="STUDY" value={stats && stats.studySessions > 0 ? String(stats.studySessions) : "0"} lit={Boolean(stats && stats.studySessions > 0)} />
-        <Readout label="DONE" value={stats ? String(stats.totalTasks) : "0"} />
-        <Readout label="SCORE" value={stats && stats.avgScore > 0 ? stats.avgScore.toFixed(1) : "--"} />
-        <Readout label="RATE" value={stats && stats.totalTasks > 0 ? `${stats.completionRate}%` : "--"} />
-        <Readout label="KNOW" value={stats ? String(stats.knowledgeEntries) : "0"} />
-        <Readout label="BAL" value={balanceDisplay} lit={balanceDisplay !== "--"} />
-        {agentCashEnabled && (
-          <Readout
-            label="USDC"
-            value={agentCashBalance ? parseFloat(agentCashBalance.balance).toFixed(2) : "--"}
-            lit={agentCashBalance !== null && parseFloat(agentCashBalance.balance) > 0}
-          />
-        )}
-      </div>
-
-      {/* Two-column: Event Log + Intelligence Briefing */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Event log */}
+    <div className="space-y-6">
+      {/* Hero */}
+      <div className="flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1 h-3 bg-red-500/20 rounded-[1px]" />
-            <h2 className="text-[9px] font-mono font-bold text-zinc-600 tracking-[0.2em]">
-              EVENT LOG
-            </h2>
-            <div className="flex-1 h-px bg-red-500/5" />
-            <span className="text-[9px] font-mono text-zinc-800">{filteredEvents.length}</span>
+          <div className="flex items-center gap-3 mb-1.5">
+            <div className={`w-2 h-2 rounded-sm ${
+              agentState === "studying" ? "bg-amber-400" : agentState === "active" ? "bg-emerald-400" : "bg-zinc-600"
+            }`} />
+            <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">Monitor</h1>
+          </div>
+          <p className="text-sm text-zinc-500 font-mono">
+            {agentState === "studying" ? "STUDYING" : agentState === "active" ? "OPERATIONAL" : "STOPPED"}
+            {status.running && ` \u2022 ${formatUptime(status.uptime)}`}
+            {status.running && status.totalPolls > 0 && ` \u2022 ${status.totalPolls} polls`}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {toggleError && <span className="text-xs text-red-400 font-mono">{toggleError}</span>}
+          <button
+            onClick={() => void toggleAgent()}
+            className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
+              status.running
+                ? "text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/50"
+                : "text-white bg-red-600 hover:bg-red-500"
+            }`}
+          >
+            {status.running ? "Stop Agent" : "Start Agent"}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Row 1 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Active Tasks" value={String(status.activeTasks)} highlight={status.activeTasks > 0} />
+        <StatCard label="Completed" value={stats ? String(stats.totalTasks) : "0"} />
+        <StatCard label="Avg Score" value={stats && stats.avgScore > 0 ? stats.avgScore.toFixed(1) + "/5" : "--"} />
+        <StatCard label="Balance" value={`${balanceDisplay} ETH`} />
+      </div>
+
+      {/* Stats Row 2 — conditional */}
+      {(agentCashEnabled || (stats && (stats.completionRate > 0 || stats.knowledgeEntries > 0 || stats.studySessions > 0))) && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {agentCashEnabled && (
+            <StatCard
+              label="USDC Balance"
+              value={agentCashBalance ? `$${parseFloat(agentCashBalance.balance).toFixed(2)}` : "--"}
+            />
+          )}
+          <StatCard label="Success Rate" value={stats && stats.totalTasks > 0 ? `${stats.completionRate}%` : "--"} />
+          <StatCard label="Knowledge" value={stats ? String(stats.knowledgeEntries) : "0"} />
+          <StatCard label="Study Sessions" value={stats ? String(stats.studySessions) : "0"} />
+        </div>
+      )}
+
+      {/* Event Log + Intelligence side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        {/* Event log — takes 3 cols */}
+        <div className="lg:col-span-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-bold text-zinc-200 tracking-tight">Activity</h2>
+              <span className="text-xs text-zinc-600 font-mono readout">{filteredEvents.length}</span>
+            </div>
+            <div className="flex gap-0.5">
+              {FILTER_OPTIONS.map((f) => (
+                <button
+                  key={f.label}
+                  onClick={() => setEventFilter(eventFilter === f.type ? null : f.type)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    eventFilter === f.type
+                      ? "bg-zinc-700 text-zinc-200"
+                      : "text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800/60"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Filter pills */}
-          <div className="flex flex-wrap gap-1 mb-2">
-            {FILTER_OPTIONS.map((f) => (
-              <button
-                key={f.label}
-                onClick={() => setEventFilter(eventFilter === f.type ? null : f.type)}
-                className={`px-2 py-0.5 rounded-sm text-[8px] font-mono font-bold tracking-wider transition-all border ${
-                  eventFilter === f.type
-                    ? "text-red-400 border-red-500/25 bg-red-500/10"
-                    : "text-zinc-700 border-zinc-800/50 hover:border-zinc-700 hover:text-zinc-500"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="panel max-h-[28rem] overflow-y-auto">
+          <div className="card overflow-hidden">
             {filteredEvents.length === 0 ? (
-              <p className="text-zinc-800 p-6 text-center text-[10px] font-mono tracking-wider">
-                AWAITING SIGNAL...
-              </p>
+              <p className="text-zinc-600 py-20 text-center text-sm">No events yet</p>
             ) : (
-              <div className="divide-y divide-red-500/[0.03]">
-                {filteredEvents.map((ev, i) => (
+              <div className="max-h-[560px] overflow-y-auto divide-y divide-zinc-800/40">
+                {filteredEvents.map((ev, idx) => (
                   <div
-                    key={i}
-                    className="px-3 py-1 flex items-center gap-2.5 hover:bg-red-500/[0.02] transition-colors text-[11px] font-mono"
+                    key={`${ev.timestamp}-${ev.type}-${ev.taskId ?? ""}`}
+                    className={`flex items-center gap-3 hover:bg-zinc-800/25 transition-colors ${
+                      idx === 0 ? "bg-zinc-800/15" : ""
+                    }`}
                   >
-                    <span className="text-zinc-800 tabular-nums shrink-0 w-[60px] text-[10px]">
+                    <div className={`w-[2px] self-stretch shrink-0 ${EVENT_BAR_COLORS[ev.type] ?? "bg-zinc-700"}`} />
+                    <span className="text-[11px] text-zinc-600 font-mono tabular-nums shrink-0 w-14 py-2.5">
                       {formatTime(ev.timestamp)}
                     </span>
-                    <span
-                      className={`shrink-0 w-10 text-[9px] font-bold tracking-wider ${EVENT_COLORS[ev.type] ?? "text-zinc-700"}`}
-                    >
-                      {EVENT_LABELS[ev.type] ?? ev.type.toUpperCase().slice(0, 4)}
+                    <span className={`text-[11px] font-semibold font-mono shrink-0 w-9 uppercase ${EVENT_COLORS[ev.type] ?? "text-zinc-600"}`}>
+                      {EVENT_LABELS[ev.type] ?? ev.type.slice(0, 5)}
                     </span>
                     {ev.taskId && (
-                      <code className="text-zinc-800 shrink-0 text-[10px]">
-                        {ev.taskId.slice(0, 8)}
-                      </code>
+                      <code className="text-[10px] text-zinc-700 font-mono shrink-0">{ev.taskId.slice(0, 8)}</code>
                     )}
-                    <span className="text-zinc-600 truncate text-[10px]">{ev.message}</span>
+                    <span className="text-[13px] text-zinc-400 truncate pr-3">{ev.message}</span>
                   </div>
                 ))}
               </div>
@@ -301,96 +294,98 @@ export function Dashboard() {
           </div>
         </div>
 
-        {/* Intelligence Briefing */}
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1 h-3 bg-red-500/20 rounded-[1px]" />
-            <h2 className="text-[9px] font-mono font-bold text-zinc-600 tracking-[0.2em]">
-              INTELLIGENCE
-            </h2>
-            <div className="flex-1 h-px bg-red-500/5" />
+        {/* Intelligence — takes 2 cols */}
+        <div className="lg:col-span-2">
+          <div className="flex items-center gap-3 mb-3">
+            <h2 className="text-lg font-bold text-zinc-200 tracking-tight">Intelligence</h2>
+            <div className="flex gap-0.5 ml-auto">
+              <button
+                onClick={() => setIntelTab("knowledge")}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                  intelTab === "knowledge" ? "bg-zinc-700 text-zinc-200" : "text-zinc-600 hover:text-zinc-400"
+                }`}
+              >
+                Knowledge ({knowledge.length})
+              </button>
+              <button
+                onClick={() => setIntelTab("feedback")}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                  intelTab === "feedback" ? "bg-zinc-700 text-zinc-200" : "text-zinc-600 hover:text-zinc-400"
+                }`}
+              >
+                Feedback ({feedback.length})
+              </button>
+            </div>
           </div>
 
-          {/* Sub-tabs */}
-          <div className="flex gap-1 mb-2">
-            <button
-              onClick={() => setIntelTab("knowledge")}
-              className={`px-2.5 py-0.5 rounded-sm text-[8px] font-mono font-bold tracking-wider transition-all border ${
-                intelTab === "knowledge"
-                  ? "text-red-400 border-red-500/25 bg-red-500/10"
-                  : "text-zinc-700 border-zinc-800/50 hover:border-zinc-700 hover:text-zinc-500"
-              }`}
-            >
-              KNOWLEDGE
-            </button>
-            <button
-              onClick={() => setIntelTab("feedback")}
-              className={`px-2.5 py-0.5 rounded-sm text-[8px] font-mono font-bold tracking-wider transition-all border ${
-                intelTab === "feedback"
-                  ? "text-red-400 border-red-500/25 bg-red-500/10"
-                  : "text-zinc-700 border-zinc-800/50 hover:border-zinc-700 hover:text-zinc-500"
-              }`}
-            >
-              FEEDBACK
-            </button>
-          </div>
-
-          <div className="panel max-h-[28rem] overflow-y-auto">
+          <div className="card overflow-hidden max-h-[560px] overflow-y-auto">
             {intelTab === "knowledge" ? (
               recentKnowledge.length === 0 ? (
-                <p className="text-zinc-800 p-6 text-center text-[10px] font-mono tracking-wider">
-                  NO KNOWLEDGE ACQUIRED
-                </p>
+                <p className="text-zinc-600 py-20 text-center text-sm">No knowledge yet</p>
               ) : (
-                <div className="divide-y divide-red-500/[0.03]">
-                  {recentKnowledge.map((k) => (
-                    <div key={k.id} className="px-3 py-2.5 hover:bg-red-500/[0.02] transition-colors">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`px-1.5 py-0.5 rounded-sm text-[7px] font-mono font-bold tracking-wider border ${
-                          TOPIC_COLORS[k.topic.toLowerCase()] ?? "text-zinc-400 bg-zinc-500/10 border-zinc-500/20"
-                        }`}>
-                          {k.topic.toUpperCase()}
-                        </span>
-                        <span className="text-[8px] font-mono text-zinc-700 tracking-wider">
-                          {k.specialty.toUpperCase()}
-                        </span>
-                        <span className="text-[8px] font-mono text-zinc-800 ml-auto">
-                          {formatRelative(k.timestamp)}
-                        </span>
+                <div className="divide-y divide-zinc-800/40">
+                  {recentKnowledge.map((k) => {
+                    const isExpanded = expandedKnowledge === k.id;
+                    return (
+                      <div key={k.id} className="px-4 py-3.5 hover:bg-zinc-800/25 transition-colors">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className={`px-2 py-0.5 rounded-sm text-[10px] font-semibold border ${
+                            TOPIC_COLORS[k.topic] ?? "bg-zinc-800 text-zinc-400 border-zinc-700/50"
+                          }`}>
+                            {k.topic.replace(/_/g, " ")}
+                          </span>
+                          <span className="text-[11px] text-zinc-600 font-mono">{k.specialty}</span>
+                          <span className="text-[10px] text-zinc-700 ml-auto font-mono">{formatRelative(k.timestamp)}</span>
+                        </div>
+                        <button
+                          onClick={() => setExpandedKnowledge(isExpanded ? null : k.id)}
+                          className="text-left w-full"
+                        >
+                          <p className={`text-[13px] text-zinc-400 leading-relaxed ${isExpanded ? "" : "line-clamp-3"}`}>
+                            {k.insight}
+                          </p>
+                        </button>
+                        <div className="flex items-center gap-2 mt-1">
+                          {k.source && (
+                            <p className="text-[10px] text-zinc-700 truncate font-mono">src: {k.source}</p>
+                          )}
+                          {isExpanded && (
+                            <button
+                              onClick={() => {
+                                api.deleteKnowledge(k.id)
+                                  .then(() => setKnowledge((prev) => prev.filter((e) => e.id !== k.id)))
+                                  .catch((err) => console.error("Failed to delete:", err));
+                              }}
+                              className="text-[10px] text-zinc-700 hover:text-red-400 transition-colors font-mono ml-auto shrink-0"
+                            >
+                              delete
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-[10px] font-mono text-zinc-500 leading-relaxed line-clamp-2">
-                        {k.insight}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             ) : (
               recentFeedback.length === 0 ? (
-                <p className="text-zinc-800 p-6 text-center text-[10px] font-mono tracking-wider">
-                  NO FEEDBACK RECEIVED
-                </p>
+                <p className="text-zinc-600 py-20 text-center text-sm">No feedback yet</p>
               ) : (
-                <div className="divide-y divide-red-500/[0.03]">
+                <div className="divide-y divide-zinc-800/40">
                   {recentFeedback.map((f) => (
-                    <div key={f.taskId} className="px-3 py-2.5 hover:bg-red-500/[0.02] transition-colors">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[11px] font-mono font-bold readout ${
-                          f.score >= 4 ? "text-green-400" : f.score >= 3 ? "text-amber-400" : "text-red-400"
+                    <div key={f.taskId} className="px-4 py-3.5 hover:bg-zinc-800/25 transition-colors">
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <span className={`text-sm font-bold font-mono ${
+                          f.score >= 4 ? "text-emerald-400" : f.score >= 3 ? "text-amber-400" : "text-red-400"
                         }`}>
                           {f.score}/5
                         </span>
-                        <span className="text-[8px] font-mono text-zinc-800 ml-auto">
-                          {formatRelative(f.timestamp)}
-                        </span>
+                        <ScorePips score={f.score} />
+                        <span className="text-[10px] text-zinc-700 ml-auto font-mono">{formatRelative(f.timestamp)}</span>
                       </div>
-                      <p className="text-[10px] font-mono text-zinc-500 truncate mb-0.5">
-                        {f.taskDescription}
-                      </p>
+                      <p className="text-[13px] text-zinc-400 leading-relaxed">{f.taskDescription}</p>
                       {f.comments && (
-                        <p className="text-[9px] font-mono text-zinc-700 truncate">
-                          "{f.comments}"
-                        </p>
+                        <p className="text-[12px] text-zinc-600 mt-1 italic">&ldquo;{f.comments}&rdquo;</p>
                       )}
                     </div>
                   ))}
@@ -404,14 +399,28 @@ export function Dashboard() {
   );
 }
 
-function Readout({ label, value, lit }: { label: string; value: string; lit?: boolean }) {
+function ScorePips({ score }: { score: number }) {
   return (
-    <div className="panel px-3 py-2">
-      <p className="text-[8px] text-zinc-700 font-mono font-bold tracking-[0.2em] mb-0.5">{label}</p>
-      <p
-        className={`text-sm font-mono font-semibold readout truncate ${lit ? "text-red-400" : "text-zinc-400"}`}
-        title={value}
-      >
+    <div className="flex gap-[2px]">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div
+          key={i}
+          className={`w-2.5 h-[5px] rounded-[1px] ${
+            i <= score
+              ? score >= 4 ? "bg-emerald-500" : score >= 3 ? "bg-amber-500" : "bg-red-500"
+              : "bg-zinc-800"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="card px-4 py-4">
+      <p className="text-[11px] text-zinc-500 font-medium uppercase tracking-wider mb-1.5">{label}</p>
+      <p className={`text-2xl font-bold font-mono readout ${highlight ? "text-zinc-100" : "text-zinc-300"}`}>
         {value}
       </p>
     </div>

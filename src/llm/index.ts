@@ -188,11 +188,17 @@ function createOpenAICompatibleProvider(
 
       if (choice.message.tool_calls) {
         for (const tc of choice.message.tool_calls) {
+          let input: Record<string, unknown>;
+          try {
+            input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+          } catch {
+            input = { _raw: tc.function.arguments, _error: "malformed JSON from LLM" };
+          }
           content.push({
             type: "tool_use",
             id: tc.id,
             name: tc.function.name,
-            input: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+            input,
           });
         }
       }

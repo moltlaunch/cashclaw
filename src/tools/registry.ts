@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../llm/types.js";
-import type { WorkClawConfig } from "../config.js";
+import type { CashClawConfig } from "../config.js";
 import type { Tool, ToolContext, ToolResult } from "./types.js";
 import {
   readTask,
@@ -13,6 +13,7 @@ import {
 import {
   checkWalletBalance,
   readFeedbackHistory,
+  memorySearch,
   logActivity,
 } from "./utility.js";
 import { agentcashFetch, agentcashBalance } from "./agentcash.js";
@@ -27,6 +28,7 @@ const BASE_TOOLS: Tool[] = [
   claimBounty,
   checkWalletBalance,
   readFeedbackHistory,
+  memorySearch,
   logActivity,
 ];
 
@@ -35,14 +37,21 @@ const AGENTCASH_TOOLS: Tool[] = [
   agentcashBalance,
 ];
 
-function buildToolMap(config: WorkClawConfig): Map<string, Tool> {
+// Memoize by config reference to avoid rebuilding on every tool call
+let cachedConfig: CashClawConfig | null = null;
+let cachedToolMap: Map<string, Tool> | null = null;
+
+function buildToolMap(config: CashClawConfig): Map<string, Tool> {
+  if (cachedConfig === config && cachedToolMap) return cachedToolMap;
   const tools = config.agentCashEnabled
     ? [...BASE_TOOLS, ...AGENTCASH_TOOLS]
     : BASE_TOOLS;
-  return new Map(tools.map((t) => [t.definition.name, t]));
+  cachedToolMap = new Map(tools.map((t) => [t.definition.name, t]));
+  cachedConfig = config;
+  return cachedToolMap;
 }
 
-export function getToolDefinitions(config: WorkClawConfig): ToolDefinition[] {
+export function getToolDefinitions(config: CashClawConfig): ToolDefinition[] {
   const toolMap = buildToolMap(config);
   return [...toolMap.values()].map((t) => t.definition);
 }

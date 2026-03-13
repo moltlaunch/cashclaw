@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { getConfigDir } from "../config.js";
 
 export interface ChatMessage {
@@ -17,8 +18,19 @@ function getChatPath(): string {
 export function loadChat(): ChatMessage[] {
   const p = getChatPath();
   if (!fs.existsSync(p)) return [];
-  const raw = fs.readFileSync(p, "utf-8");
-  return JSON.parse(raw) as ChatMessage[];
+  try {
+    const raw = fs.readFileSync(p, "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (e): e is ChatMessage =>
+        typeof e === "object" && e !== null &&
+        typeof (e as ChatMessage).role === "string" &&
+        typeof (e as ChatMessage).content === "string",
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function appendChat(message: ChatMessage): void {
@@ -29,12 +41,16 @@ export function appendChat(message: ChatMessage): void {
 
   const p = getChatPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(trimmed, null, 2));
+  const tmp = `${p}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2));
+  fs.renameSync(tmp, p);
 }
 
 export function clearChat(): void {
   const p = getChatPath();
   if (fs.existsSync(p)) {
-    fs.writeFileSync(p, "[]");
+    const tmp = `${p}.${crypto.randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, "[]");
+    fs.renameSync(tmp, p);
   }
 }

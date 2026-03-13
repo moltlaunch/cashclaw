@@ -25,7 +25,7 @@ export interface PersonalityConfig {
   customInstructions?: string;
 }
 
-export interface WorkClawConfig {
+export interface CashClawConfig {
   agentId: string;
   llm: LLMConfig;
   polling: PollingConfig;
@@ -42,10 +42,10 @@ export interface WorkClawConfig {
   agentCashEnabled: boolean;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), ".workclaw");
-const CONFIG_PATH = path.join(CONFIG_DIR, "workclaw.json");
+const CONFIG_DIR = path.join(os.homedir(), ".cashclaw");
+const CONFIG_PATH = path.join(CONFIG_DIR, "cashclaw.json");
 
-const DEFAULT_CONFIG: Omit<WorkClawConfig, "agentId" | "llm"> = {
+const DEFAULT_CONFIG: Omit<CashClawConfig, "agentId" | "llm"> = {
   polling: { intervalMs: 30000, urgentIntervalMs: 10000 },
   pricing: { strategy: "fixed", baseRateEth: "0.005", maxRateEth: "0.05" },
   specialties: [],
@@ -58,13 +58,19 @@ const DEFAULT_CONFIG: Omit<WorkClawConfig, "agentId" | "llm"> = {
   agentCashEnabled: false,
 };
 
-export function loadConfig(): WorkClawConfig | null {
+export function loadConfig(): CashClawConfig | null {
   if (!fs.existsSync(CONFIG_PATH)) return null;
-  const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
-  return JSON.parse(raw) as WorkClawConfig;
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as CashClawConfig;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
-export function requireConfig(): WorkClawConfig {
+export function requireConfig(): CashClawConfig {
   const config = loadConfig();
   if (!config) {
     throw new Error(
@@ -74,7 +80,7 @@ export function requireConfig(): WorkClawConfig {
   return config;
 }
 
-export function saveConfig(config: WorkClawConfig): void {
+export function saveConfig(config: CashClawConfig): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   fs.chmodSync(CONFIG_PATH, 0o600);
@@ -88,7 +94,7 @@ export function isConfigured(): boolean {
 }
 
 /** Save partial config fields, merging with existing config or defaults */
-export function savePartialConfig(partial: Partial<WorkClawConfig>): WorkClawConfig {
+export function savePartialConfig(partial: Partial<CashClawConfig>): CashClawConfig {
   const existing = loadConfig();
   const config = {
     ...DEFAULT_CONFIG,
@@ -107,14 +113,14 @@ export function initConfig(opts: {
   model?: string;
   apiKey: string;
   specialties?: string[];
-}): WorkClawConfig {
+}): CashClawConfig {
   const modelDefaults: Record<LLMConfig["provider"], string> = {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
     openrouter: "anthropic/claude-sonnet-4-20250514",
   };
 
-  const config: WorkClawConfig = {
+  const config: CashClawConfig = {
     ...DEFAULT_CONFIG,
     agentId: opts.agentId,
     llm: {

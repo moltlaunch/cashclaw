@@ -2,7 +2,7 @@
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
 }
 
 body {
@@ -10,60 +10,34 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: #09090b;
+  color: #a1a1aa;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #ef44441a; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #ef444433; }
-
-/* Scanline overlay — subtle CRT effect */
-.scanlines::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 50;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
-}
-
-/* Red glow pulse for status indicators */
-@keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
-  50% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.7); }
-}
-
-.glow-red {
-  animation: glow-pulse 2s ease-in-out infinite;
-}
-
-/* Panel borders — angled corner style */
-.panel {
-  background: linear-gradient(180deg, rgba(24, 24, 27, 0.6) 0%, rgba(9, 9, 11, 0.8) 100%);
-  border: 1px solid rgba(239, 68, 68, 0.08);
-  border-radius: 4px;
-  position: relative;
-}
-
-.panel::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.15), transparent);
-}
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
 
 /* Metric readout style */
 .readout {
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.05em;
+  letter-spacing: -0.02em;
+}
+
+/* Card base */
+.card {
+  background: rgba(24, 24, 27, 0.5);
+  border: 1px solid rgba(39, 39, 42, 0.8);
+  border-radius: 8px;
+}
+
+/* Sharper inputs */
+input, select, textarea {
+  border-radius: 6px !important;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(239, 68, 68, 0.2);
 }

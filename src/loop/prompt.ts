@@ -1,7 +1,8 @@
-import type { WorkClawConfig } from "../config.js";
+import type { CashClawConfig } from "../config.js";
 import { loadKnowledge, getRelevantKnowledge } from "../memory/knowledge.js";
+import { searchMemory } from "../memory/search.js";
 
-export function buildSystemPrompt(config: WorkClawConfig): string {
+export function buildSystemPrompt(config: CashClawConfig, taskDescription?: string): string {
   const specialties = config.specialties.length > 0
     ? config.specialties.join(", ")
     : "general-purpose";
@@ -48,7 +49,8 @@ You receive tasks from clients and use tools to take actions. You MUST use tools
 - Self-learning: When idle, you run study sessions every ${Math.round(config.studyIntervalMs / 60000)} minutes. You have ${loadKnowledge().length} knowledge entries. Learning is ${config.learningEnabled ? "ACTIVE" : "DISABLED"}.
 - Knowledge base: Insights from self-study inform your work and improve quality over time.
 - Operator chat: Your operator can communicate with you directly through the dashboard.
-- Task tools: You can quote, decline, submit work, message clients, browse bounties, check wallet, and read feedback.`;
+- Task tools: You can quote, decline, submit work, message clients, browse bounties, check wallet, read feedback, and search your memory.
+- Memory search: Use memory_search to recall past experiences, lessons, and feedback relevant to a task. Relevant context is also auto-injected above.`;
 
   // Append personality configuration if set
   if (config.personality) {
@@ -64,13 +66,22 @@ You receive tasks from clients and use tools to take actions. You MUST use tools
     }
   }
 
-  // Inject learned knowledge from study sessions
-  const knowledge = getRelevantKnowledge(config.specialties, 5);
-  if (knowledge.length > 0) {
-    const entries = knowledge
-      .map((k) => `- **${k.topic}** (${k.specialty}): ${k.insight}`)
-      .join("\n");
-    prompt += `\n\n## Learned Knowledge\n\nInsights from self-study to improve your work:\n${entries}`;
+  // Inject task-relevant memory via BM25 search (if we have a task description)
+  // Falls back to specialty-based knowledge when no task is provided (e.g. study sessions)
+  if (taskDescription) {
+    const hits = searchMemory(taskDescription, 5);
+    if (hits.length > 0) {
+      const entries = hits.map((h) => `- ${h.text.slice(0, 300)}`).join("\n");
+      prompt += `\n\n## Relevant Context\n\nFrom your memory — past knowledge and feedback relevant to this task:\n${entries}`;
+    }
+  } else {
+    const knowledge = getRelevantKnowledge(config.specialties, 5);
+    if (knowledge.length > 0) {
+      const entries = knowledge
+        .map((k) => `- **${k.topic}** (${k.specialty}): ${k.insight}`)
+        .join("\n");
+      prompt += `\n\n## Learned Knowledge\n\nInsights from self-study to improve your work:\n${entries}`;
+    }
   }
 
   // AgentCash external APIs

@@ -24,7 +24,6 @@ interface SetupProps {
 
 export function Setup({ onComplete }: SetupProps) {
   const [step, setStep] = useState(0);
-  const [agentId, setAgentId] = useState("");
   const [skipRegister, setSkipRegister] = useState(false);
 
   const steps = useMemo(
@@ -40,7 +39,6 @@ export function Setup({ onComplete }: SetupProps) {
 
   function handleWalletNext(existingAgentId?: string) {
     if (existingAgentId) {
-      setAgentId(existingAgentId);
       setSkipRegister(true);
       setStep(1);
     } else {
@@ -102,12 +100,7 @@ export function Setup({ onComplete }: SetupProps) {
         <div className="w-full max-w-lg">
           {currentStepId === "wallet" && <WalletStep onNext={handleWalletNext} />}
           {currentStepId === "register" && (
-            <RegisterStep
-              onNext={(id) => {
-                setAgentId(id);
-                next();
-              }}
-            />
+            <RegisterStep onNext={() => { next(); }} />
           )}
           {currentStepId === "llm" && <LLMStep onNext={next} />}
           {currentStepId === "specialization" && <SpecializationStep onComplete={onComplete} />}

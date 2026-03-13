@@ -1,5 +1,5 @@
 import type { LLMProvider, LLMMessage } from "../llm/types.js";
-import type { WorkClawConfig } from "../config.js";
+import type { CashClawConfig } from "../config.js";
 import { loadFeedback, type FeedbackEntry } from "../memory/feedback.js";
 import {
   loadKnowledge,
@@ -22,15 +22,23 @@ const STUDY_TOPICS: KnowledgeEntry["topic"][] = [
 const MAX_STUDY_TURNS = 3;
 
 /** Pick the next topic by rotating through the list based on past entries */
-function pickTopic(existing: KnowledgeEntry[]): KnowledgeEntry["topic"] {
-  const counts = new Map<string, number>();
-  for (const topic of STUDY_TOPICS) counts.set(topic, 0);
-  for (const e of existing) counts.set(e.topic, (counts.get(e.topic) ?? 0) + 1);
+function pickTopic(existing: KnowledgeEntry[], feedback: FeedbackEntry[]): KnowledgeEntry["topic"] {
+  // Skip feedback_analysis if there's no feedback to analyze
+  const eligible = feedback.length > 0
+    ? STUDY_TOPICS
+    : STUDY_TOPICS.filter((t) => t !== "feedback_analysis");
 
-  // Pick the topic with the fewest entries
-  let minTopic = STUDY_TOPICS[0];
+  const counts = new Map<string, number>();
+  for (const topic of eligible) counts.set(topic, 0);
+  for (const e of existing) {
+    if (eligible.includes(e.topic)) {
+      counts.set(e.topic, (counts.get(e.topic) ?? 0) + 1);
+    }
+  }
+
+  let minTopic = eligible[0];
   let minCount = Infinity;
-  for (const topic of STUDY_TOPICS) {
+  for (const topic of eligible) {
     const count = counts.get(topic) ?? 0;
     if (count < minCount) {
       minCount = count;
@@ -42,7 +50,7 @@ function pickTopic(existing: KnowledgeEntry[]): KnowledgeEntry["topic"] {
 
 function buildStudyPrompt(
   topic: KnowledgeEntry["topic"],
-  config: WorkClawConfig,
+  config: CashClawConfig,
   feedback: FeedbackEntry[],
   knowledge: KnowledgeEntry[],
 ): string {
@@ -102,18 +110,21 @@ Produce a concise insight (2-3 paragraphs) covering the approach and lessons lea
 }
 
 function generateId(): string {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  return crypto.randomUUID();
 }
 
 export async function runStudySession(
   llm: LLMProvider,
-  config: WorkClawConfig,
+  config: CashClawConfig,
 ): Promise<StudyResult> {
   const feedback = loadFeedback();
   const knowledge = loadKnowledge();
-  const topic = pickTopic(knowledge);
+  const topic = pickTopic(knowledge, feedback);
 
-  const specialty = config.specialties[0] ?? "general";
+  // Rotate through specialties instead of always using the first one
+  const specialtyPool = config.specialties.length > 0 ? config.specialties : ["general"];
+  const topicEntries = knowledge.filter((k) => k.topic === topic);
+  const specialty = specialtyPool[topicEntries.length % specialtyPool.length];
   const prompt = buildStudyPrompt(topic, config, feedback, knowledge);
 
   const messages: LLMMessage[] = [

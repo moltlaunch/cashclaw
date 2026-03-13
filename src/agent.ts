@@ -6,28 +6,26 @@ import {
   savePartialConfig,
   isConfigured,
   isAgentCashAvailable,
-  type WorkClawConfig,
+  type CashClawConfig,
   type LLMConfig,
 } from "./config.js";
 import { createLLMProvider } from "./llm/index.js";
 import { createHeartbeat, type Heartbeat } from "./heartbeat.js";
 import { readTodayLog } from "./memory/log.js";
 import { getFeedbackStats, loadFeedback } from "./memory/feedback.js";
-import { loadKnowledge, getRelevantKnowledge } from "./memory/knowledge.js";
+import { loadKnowledge, getRelevantKnowledge, deleteKnowledge } from "./memory/knowledge.js";
 import { loadChat, appendChat, clearChat } from "./memory/chat.js";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { agentcashBalance } from "./tools/agentcash.js";
 import * as cli from "./moltlaunch/cli.js";
 
-const execFileAsync = promisify(execFile);
-
 const PORT = 3777;
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
 
 type ServerMode = "setup" | "running";
 
 interface ServerContext {
   mode: ServerMode;
-  config: WorkClawConfig | null;
+  config: CashClawConfig | null;
   heartbeat: Heartbeat | null;
 }
 
@@ -62,7 +60,9 @@ export async function startAgent(): Promise<http.Server> {
 
 function createServer(ctx: ServerContext): http.Server {
   const server = http.createServer((req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    // Restrict CORS to same-origin only — prevents cross-site request forgery
+    const allowedOrigin = `http://localhost:${PORT}`;
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
@@ -97,10 +97,27 @@ function json(res: http.ServerResponse, data: unknown, status = 200) {
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function parseJsonBody<T>(raw: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error("Invalid JSON");
+  }
 }
 
 function handleApi(
@@ -164,6 +181,11 @@ function handleApi(
 
     case "/api/knowledge":
       json(res, { entries: loadKnowledge() });
+      break;
+
+    case "/api/knowledge/delete":
+      if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
+      handleKnowledgeDelete(req, res);
       break;
 
     case "/api/feedback":
@@ -252,7 +274,7 @@ async function handleSetupApi(
 
       case "/api/setup/wallet/import": {
         if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
-        const body = JSON.parse(await readBody(req)) as { privateKey: string };
+        const body = parseJsonBody(await readBody(req)) as { privateKey: string };
         const wallet = await cli.walletImport(body.privateKey);
         json(res, wallet);
         break;
@@ -260,7 +282,7 @@ async function handleSetupApi(
 
       case "/api/setup/register": {
         if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
-        const body = JSON.parse(await readBody(req)) as {
+        const body = parseJsonBody(await readBody(req)) as {
           name: string;
           description: string;
           skills: string[];
@@ -278,7 +300,7 @@ async function handleSetupApi(
 
       case "/api/setup/llm": {
         if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
-        const body = JSON.parse(await readBody(req)) as LLMConfig;
+        const body = parseJsonBody(await readBody(req)) as LLMConfig;
         savePartialConfig({ llm: body });
         ctx.config = loadConfig();
         json(res, { ok: true });
@@ -287,7 +309,7 @@ async function handleSetupApi(
 
       case "/api/setup/llm/test": {
         if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
-        const body = JSON.parse(await readBody(req)) as LLMConfig;
+        const body = parseJsonBody(await readBody(req)) as LLMConfig;
         const llm = createLLMProvider(body);
         const response = await llm.chat([
           { role: "user", content: "Say hello in one sentence." },
@@ -302,7 +324,7 @@ async function handleSetupApi(
 
       case "/api/setup/specialization": {
         if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
-        const body = JSON.parse(await readBody(req)) as {
+        const body = parseJsonBody(await readBody(req)) as {
           specialties: string[];
           pricing: { strategy: string; baseRateEth: string; maxRateEth: string };
           autoQuote: boolean;
@@ -312,7 +334,7 @@ async function handleSetupApi(
         };
         savePartialConfig({
           specialties: body.specialties,
-          pricing: body.pricing as WorkClawConfig["pricing"],
+          pricing: body.pricing as CashClawConfig["pricing"],
           autoQuote: body.autoQuote,
           autoWork: body.autoWork,
           maxConcurrentTasks: body.maxConcurrentTasks,
@@ -341,6 +363,18 @@ async function handleSetupApi(
         break;
       }
 
+      case "/api/setup/reset": {
+        if (req.method !== "POST") { json(res, { error: "POST only" }, 405); return; }
+        if (ctx.heartbeat) {
+          ctx.heartbeat.stop();
+          ctx.heartbeat = null;
+        }
+        ctx.config = null;
+        ctx.mode = "setup";
+        json(res, { ok: true, mode: "setup" });
+        break;
+      }
+
       default:
         json(res, { error: "Not found" }, 404);
     }
@@ -365,7 +399,7 @@ async function handleConfigUpdate(
 ) {
   try {
     const body = await readBody(req);
-    const updates = JSON.parse(body) as Partial<WorkClawConfig>;
+    const updates = parseJsonBody<Partial<CashClawConfig>>(body);
 
     if (!ctx.config) {
       json(res, { error: "No config" }, 400);
@@ -373,14 +407,47 @@ async function handleConfigUpdate(
     }
 
     if (updates.specialties) ctx.config.specialties = updates.specialties;
-    if (updates.pricing) ctx.config.pricing = updates.pricing;
+    if (updates.pricing) {
+      const ethPattern = /^\d+(\.\d{1,18})?$/;
+      if (!ethPattern.test(updates.pricing.baseRateEth) || !ethPattern.test(updates.pricing.maxRateEth)) {
+        json(res, { error: "Invalid ETH amount format" }, 400);
+        return;
+      }
+      if (parseFloat(updates.pricing.baseRateEth) > parseFloat(updates.pricing.maxRateEth)) {
+        json(res, { error: "baseRate cannot exceed maxRate" }, 400);
+        return;
+      }
+      ctx.config.pricing = updates.pricing;
+    }
     if (updates.autoQuote !== undefined) ctx.config.autoQuote = updates.autoQuote;
     if (updates.autoWork !== undefined) ctx.config.autoWork = updates.autoWork;
-    if (updates.maxConcurrentTasks) ctx.config.maxConcurrentTasks = updates.maxConcurrentTasks;
+    if (updates.maxConcurrentTasks !== undefined) {
+      const val = Number(updates.maxConcurrentTasks);
+      if (!Number.isInteger(val) || val < 1 || val > 20) {
+        json(res, { error: "maxConcurrentTasks must be 1-20" }, 400);
+        return;
+      }
+      ctx.config.maxConcurrentTasks = val;
+    }
     if (updates.declineKeywords) ctx.config.declineKeywords = updates.declineKeywords;
-    if (updates.personality) ctx.config.personality = updates.personality;
+    if (updates.personality) {
+      const p = updates.personality;
+      // Cap customInstructions to prevent prompt bloat
+      if (p.customInstructions && p.customInstructions.length > 2000) {
+        json(res, { error: "customInstructions must be under 2000 characters" }, 400);
+        return;
+      }
+      ctx.config.personality = p;
+    }
     if (updates.learningEnabled !== undefined) ctx.config.learningEnabled = updates.learningEnabled;
-    if (updates.studyIntervalMs !== undefined) ctx.config.studyIntervalMs = updates.studyIntervalMs;
+    if (updates.studyIntervalMs !== undefined) {
+      const val = Number(updates.studyIntervalMs);
+      if (val < 60_000 || val > 86_400_000) {
+        json(res, { error: "studyIntervalMs must be 60000-86400000" }, 400);
+        return;
+      }
+      ctx.config.studyIntervalMs = val;
+    }
     if (updates.polling) ctx.config.polling = updates.polling;
     if (updates.agentCashEnabled !== undefined) ctx.config.agentCashEnabled = updates.agentCashEnabled;
 
@@ -403,8 +470,9 @@ async function handleConfigUpdate(
 
     savePartialConfig(ctx.config);
     json(res, { ok: true });
-  } catch {
-    json(res, { error: "Invalid JSON" }, 400);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid request";
+    json(res, { error: msg }, 400);
   }
 }
 
@@ -431,13 +499,12 @@ async function handleAgentCashBalance(
     return;
   }
   try {
-    const { stdout } = await execFileAsync(
-      "npx",
-      ["agentcash", "wallet", "info", "--format", "json"],
-      { timeout: 15_000, env: { ...process.env } },
-    );
-    const data = JSON.parse(stdout.trim()) as { address: string; balance: string; network: string };
-    json(res, data);
+    const result = await agentcashBalance.execute({}, { config: ctx.config!, taskId: "" });
+    if (!result.success) {
+      json(res, { error: result.data }, 500);
+      return;
+    }
+    json(res, JSON.parse(result.data));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     json(res, { error: msg }, 500);
@@ -450,7 +517,7 @@ async function handleChat(
   ctx: ServerContext,
 ) {
   try {
-    const body = JSON.parse(await readBody(req)) as { message: string };
+    const body = parseJsonBody(await readBody(req)) as { message: string };
     if (!body.message?.trim()) {
       json(res, { error: "Message required" }, 400);
       return;
@@ -522,6 +589,28 @@ You're chatting with your operator. Be helpful, concise, and direct. Discuss per
   }
 }
 
+async function handleKnowledgeDelete(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) {
+  try {
+    const body = parseJsonBody<{ id: string }>(await readBody(req));
+    if (!body.id || typeof body.id !== "string") {
+      json(res, { error: "Missing id" }, 400);
+      return;
+    }
+    const deleted = deleteKnowledge(body.id);
+    if (!deleted) {
+      json(res, { error: "Entry not found" }, 404);
+      return;
+    }
+    json(res, { ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid request";
+    json(res, { error: msg }, 400);
+  }
+}
+
 function serveStatic(pathname: string, res: http.ServerResponse) {
   // Resolve the built UI dist directory.
   // In dev (tsx): import.meta.dirname = src/, built UI at ../dist/ui
@@ -531,10 +620,19 @@ function serveStatic(pathname: string, res: http.ServerResponse) {
   const uiDir = fs.existsSync(path.join(distUi, "index.html"))
     ? distUi
     : path.join(baseDir, "ui");
-  let filePath = path.join(uiDir, pathname === "/" ? "index.html" : pathname);
+
+  const resolvedUiDir = path.resolve(uiDir);
+  let filePath = path.resolve(uiDir, pathname === "/" ? "index.html" : pathname.slice(1));
+
+  // Path traversal guard — ensure resolved path is under uiDir
+  if (!filePath.startsWith(resolvedUiDir)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
 
   if (!path.extname(filePath)) {
-    filePath = path.join(uiDir, "index.html");
+    filePath = path.join(resolvedUiDir, "index.html");
   }
 
   if (!fs.existsSync(filePath)) {

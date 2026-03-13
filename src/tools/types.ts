@@ -1,5 +1,5 @@
 import type { ToolDefinition } from "../llm/types.js";
-import type { WorkClawConfig } from "../config.js";
+import type { CashClawConfig } from "../config.js";
 
 export interface ToolResult {
   success: boolean;
@@ -7,7 +7,7 @@ export interface ToolResult {
 }
 
 export interface ToolContext {
-  config: WorkClawConfig;
+  config: CashClawConfig;
   taskId: string;
 }
 

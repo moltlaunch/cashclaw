@@ -1,18 +1,23 @@
 {
-  "name": "workclaw",
+  "name": "cashclaw",
   "version": "0.1.0",
   "description": "Autonomous work agent for the moltlaunch marketplace",
+  "license": "MIT",
+  "author": "Moltlaunch",
   "type": "module",
   "bin": {
-    "workclaw": "./dist/index.js"
+    "cashclaw": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup",
     "build:ui": "vite build",
+    "build:all": "tsup && vite build",
     "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "minisearch": "^7.2.0",
     "viem": "^2.23.0",
     "ws": "^8.19.0"
   },

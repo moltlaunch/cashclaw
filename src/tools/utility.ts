@@ -1,6 +1,7 @@
 import type { Tool } from "./types.js";
 import { loadFeedback } from "../memory/feedback.js";
 import { appendLog } from "../memory/log.js";
+import { searchMemory } from "../memory/search.js";
 import * as cli from "../moltlaunch/cli.js";
 
 export const checkWalletBalance: Tool = {
@@ -49,6 +50,49 @@ export const readFeedbackHistory: Tool = {
   },
 };
 
+export const memorySearch: Tool = {
+  definition: {
+    name: "memory_search",
+    description:
+      "Search your knowledge base and past feedback for relevant context. " +
+      "Use when you need to recall past experiences, lessons learned, or " +
+      "feedback patterns related to a topic or task type.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query — keywords describing what you're looking for",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return (default 5)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  async execute(input) {
+    const query = input.query;
+    if (typeof query !== "string" || !query.trim()) {
+      return { success: false, data: "Missing required field: query" };
+    }
+    const limit = (input.limit as number) || 5;
+
+    const hits = searchMemory(query, limit);
+
+    if (hits.length === 0) {
+      return { success: true, data: "No relevant memories found." };
+    }
+
+    const summary = hits
+      .map((h, i) => `${i + 1}. [${h.type}] ${h.text.slice(0, 300)}`)
+      .join("\n\n");
+
+    return { success: true, data: summary };
+  },
+};
+
 export const logActivity: Tool = {
   definition: {
     name: "log_activity",
@@ -62,7 +106,11 @@ export const logActivity: Tool = {
     },
   },
   async execute(input) {
-    appendLog(input.entry as string);
+    const entry = input.entry;
+    if (typeof entry !== "string" || !entry.trim()) {
+      return { success: false, data: "Missing required field: entry" };
+    }
+    appendLog(entry);
     return { success: true, data: "Logged." };
   },
 };

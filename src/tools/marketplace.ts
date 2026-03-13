@@ -1,6 +1,12 @@
 import type { Tool } from "./types.js";
 import * as cli from "../moltlaunch/cli.js";
 
+function requireString(input: Record<string, unknown>, key: string): string {
+  const val = input[key];
+  if (typeof val !== "string" || !val) throw new Error(`Missing required field: ${key}`);
+  return val;
+}
+
 export const readTask: Tool = {
   definition: {
     name: "read_task",
@@ -14,7 +20,8 @@ export const readTask: Tool = {
     },
   },
   async execute(input) {
-    const task = await cli.getTask(input.task_id as string);
+    const taskId = requireString(input, "task_id");
+    const task = await cli.getTask(taskId);
     return { success: true, data: JSON.stringify(task) };
   },
 };
@@ -34,12 +41,10 @@ export const quoteTask: Tool = {
     },
   },
   async execute(input) {
-    await cli.quoteTask(
-      input.task_id as string,
-      input.price_eth as string,
-      input.message as string | undefined,
-    );
-    return { success: true, data: `Quoted task ${input.task_id} at ${input.price_eth} ETH` };
+    const taskId = requireString(input, "task_id");
+    const priceEth = requireString(input, "price_eth");
+    await cli.quoteTask(taskId, priceEth, input.message as string | undefined);
+    return { success: true, data: `Quoted task ${taskId} at ${priceEth} ETH` };
   },
 };
 
@@ -57,11 +62,9 @@ export const declineTask: Tool = {
     },
   },
   async execute(input) {
-    await cli.declineTask(
-      input.task_id as string,
-      input.reason as string | undefined,
-    );
-    return { success: true, data: `Declined task ${input.task_id}` };
+    const taskId = requireString(input, "task_id");
+    await cli.declineTask(taskId, input.reason as string | undefined);
+    return { success: true, data: `Declined task ${taskId}` };
   },
 };
 
@@ -79,11 +82,10 @@ export const submitWork: Tool = {
     },
   },
   async execute(input) {
-    await cli.submitWork(
-      input.task_id as string,
-      input.result as string,
-    );
-    return { success: true, data: `Submitted work for task ${input.task_id}` };
+    const taskId = requireString(input, "task_id");
+    const result = requireString(input, "result");
+    await cli.submitWork(taskId, result);
+    return { success: true, data: `Submitted work for task ${taskId}` };
   },
 };
 
@@ -101,11 +103,10 @@ export const sendMessage: Tool = {
     },
   },
   async execute(input) {
-    await cli.sendMessage(
-      input.task_id as string,
-      input.content as string,
-    );
-    return { success: true, data: `Message sent on task ${input.task_id}` };
+    const taskId = requireString(input, "task_id");
+    const content = requireString(input, "content");
+    await cli.sendMessage(taskId, content);
+    return { success: true, data: `Message sent on task ${taskId}` };
   },
 };
 
@@ -138,10 +139,8 @@ export const claimBounty: Tool = {
     },
   },
   async execute(input) {
-    await cli.claimBounty(
-      input.bounty_id as string,
-      input.message as string | undefined,
-    );
-    return { success: true, data: `Claimed bounty ${input.bounty_id}` };
+    const bountyId = requireString(input, "bounty_id");
+    await cli.claimBounty(bountyId, input.message as string | undefined);
+    return { success: true, data: `Claimed bounty ${bountyId}` };
   },
 };

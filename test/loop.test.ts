@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { runAgentLoop } from "../src/loop/index.js";
 import type { LLMProvider, LLMResponse, ToolDefinition } from "../src/llm/types.js";
 import type { Task } from "../src/moltlaunch/types.js";
-import type { WorkClawConfig } from "../src/config.js";
+import type { CashClawConfig } from "../src/config.js";
 
 // Mock the tools registry so we don't hit real APIs
 vi.mock("../src/tools/registry.js", () => ({
@@ -37,7 +37,7 @@ vi.mock("../src/tools/registry.js", () => ({
   }),
 }));
 
-const baseConfig: WorkClawConfig = {
+const baseConfig: CashClawConfig = {
   agentId: "test-agent",
   llm: { provider: "anthropic", model: "test", apiKey: "test" },
   polling: { intervalMs: 30000, urgentIntervalMs: 10000 },

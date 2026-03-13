@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { getConfigDir } from "../config.js";
 
 export interface FeedbackEntry {
@@ -16,23 +17,49 @@ function getFeedbackPath(): string {
   return path.join(getConfigDir(), "feedback.json");
 }
 
-export function loadFeedback(): FeedbackEntry[] {
+// In-memory cache — avoids re-reading from disk on every call
+let cache: FeedbackEntry[] | null = null;
+
+function readFromDisk(): FeedbackEntry[] {
   const p = getFeedbackPath();
   if (!fs.existsSync(p)) return [];
-  const raw = fs.readFileSync(p, "utf-8");
-  return JSON.parse(raw) as FeedbackEntry[];
+  try {
+    const raw = fs.readFileSync(p, "utf-8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (e): e is FeedbackEntry =>
+        typeof e === "object" && e !== null &&
+        typeof (e as FeedbackEntry).taskId === "string" &&
+        typeof (e as FeedbackEntry).score === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function loadFeedback(): FeedbackEntry[] {
+  if (cache) return cache;
+  cache = readFromDisk();
+  return cache;
 }
 
 export function storeFeedback(entry: FeedbackEntry): void {
+  import("./search.js")
+    .then((m) => m.invalidateIndex())
+    .catch((err) => console.error("Failed to invalidate search index:", err));
+
   const entries = loadFeedback();
   entries.push(entry);
 
-  // Keep only the most recent entries
   const trimmed = entries.slice(-MAX_ENTRIES);
+  cache = trimmed;
 
   const p = getFeedbackPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(trimmed, null, 2));
+  const tmp = `${p}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(trimmed, null, 2));
+  fs.renameSync(tmp, p);
 }
 
 export function getFeedbackStats(): {

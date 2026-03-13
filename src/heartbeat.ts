@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import type { WorkClawConfig } from "./config.js";
+import type { CashClawConfig } from "./config.js";
 import type { LLMProvider } from "./llm/types.js";
 import type { Task } from "./moltlaunch/types.js";
 import * as cli from "./moltlaunch/cli.js";
@@ -38,9 +38,11 @@ const WS_INITIAL_RECONNECT_MS = 5_000;
 const WS_MAX_RECONNECT_MS = 300_000; // 5 min cap
 // When WS is connected, poll infrequently as a sync check
 const WS_POLL_INTERVAL_MS = 120_000;
+// Expire non-terminal tasks after 7 days to prevent memory leaks
+const TASK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createHeartbeat(
-  config: WorkClawConfig,
+  config: CashClawConfig,
   llm: LLMProvider,
 ) {
   const state: HeartbeatState = {
@@ -61,6 +63,9 @@ export function createHeartbeat(
   let wsReconnectDelay = WS_INITIAL_RECONNECT_MS;
   let wsFailLogged = false;
   const processing = new Set<string>();
+  const completedTasks = new Set<string>();
+  // Track task+status combos to prevent duplicate processing from WS+poll overlap
+  const processedVersions = new Map<string, string>();
   const listeners: EventListener[] = [];
 
   function emit(event: Omit<ActivityEvent, "timestamp">) {
@@ -170,6 +175,14 @@ export function createHeartbeat(
         handleCompleted(task);
       }
       state.activeTasks.delete(task.id);
+      processedVersions.delete(task.id);
+      return;
+    }
+
+    // Dedup: skip if we already processed this exact task+status combo
+    const version = `${task.id}:${task.status}`;
+    if (processedVersions.get(task.id) === version && !processing.has(task.id)) {
+      state.activeTasks.set(task.id, task);
       return;
     }
 
@@ -177,12 +190,14 @@ export function createHeartbeat(
 
     if (task.status === "quoted" || task.status === "submitted") {
       state.activeTasks.set(task.id, task);
+      processedVersions.set(task.id, version);
       return;
     }
 
     if (processing.size >= config.maxConcurrentTasks) return;
 
     state.activeTasks.set(task.id, task);
+    processedVersions.set(task.id, version);
     processing.add(task.id);
 
     emit({ type: "loop_start", taskId: task.id, message: `Agent loop started (${task.status})` });
@@ -241,6 +256,8 @@ export function createHeartbeat(
 
   function handleCompleted(task: Task) {
     if (task.ratedScore === undefined) return;
+    if (completedTasks.has(task.id)) return;
+    completedTasks.add(task.id);
 
     storeFeedback({
       taskId: task.id,
@@ -260,6 +277,16 @@ export function createHeartbeat(
 
   function scheduleNext() {
     if (!state.running) return;
+
+    // Expire stale non-terminal tasks to prevent memory leaks
+    const now = Date.now();
+    for (const [id, task] of state.activeTasks) {
+      const taskTime = task.quotedAt ?? task.acceptedAt ?? task.submittedAt ?? state.startedAt;
+      if (!processing.has(id) && now - taskTime > TASK_EXPIRY_MS) {
+        state.activeTasks.delete(id);
+        processedVersions.delete(id);
+      }
+    }
 
     // Check if we should study while idle
     void maybeStudy();
@@ -326,6 +353,10 @@ export function createHeartbeat(
     if (state.running) return;
     state.running = true;
     state.startedAt = Date.now();
+    // Don't study immediately on restart — wait one full interval
+    if (state.lastStudyTime === 0) {
+      state.lastStudyTime = Date.now();
+    }
     appendLog("Heartbeat started");
     connectWs();
     void tick();
