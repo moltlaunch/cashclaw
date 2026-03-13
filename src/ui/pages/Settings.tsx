@@ -375,8 +375,11 @@ function Toggle({ label, description, checked, onChange }: { label: string; desc
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
-      className="w-full flex items-center justify-between py-2.5 px-1 group"
+      className="w-full flex items-center justify-between py-2.5 px-1 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-600 rounded-sm"
     >
       <div className="text-left">
         <p className="text-[13px] font-medium text-zinc-300">{label}</p>
