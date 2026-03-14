@@ -236,6 +236,13 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
         config,
         "https://openrouter.ai/api/v1",
       );
+    case "ollama":
+      // Ollama uses OpenAI-compatible API at localhost:11434
+      // API key is optional for local Ollama
+      return createOpenAICompatibleProvider(
+        { ...config, apiKey: config.apiKey || "dummy" },
+        "http://localhost:11434/v1",
+      );
     default:
       throw new Error(`Unknown LLM provider: ${config.provider}`);
   }
