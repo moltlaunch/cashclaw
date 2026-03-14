@@ -30,7 +30,7 @@ interface RateLimitEntry {
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 100; // 100 requests per minute per IP
+const RATE_LIMIT_MAX_REQUESTS = 600; // 600 requests per minute per IP (dashboard makes many API calls)
 
 function checkRateLimit(clientIp: string): boolean {
   const now = Date.now();
@@ -110,9 +110,9 @@ function createServer(ctx: ServerContext): http.Server {
     }
 
     // HIGH FIX: Host header validation to prevent DNS rebinding attacks
-    const hostHeader = req.headers.host;
-    const allowedHosts = [`localhost:${PORT}`, `127.0.0.1:${PORT}`];
-    if (!hostHeader || !allowedHosts.includes(hostHeader)) {
+    const hostHeader = req.headers.host?.split(':')[0] || '';
+    const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', ''];
+    if (hostHeader && !allowedHosts.includes(hostHeader)) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid Host header' }));
       return;
