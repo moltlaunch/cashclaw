@@ -289,12 +289,12 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
     case "openai":
       return createOpenAICompatibleProvider(
         config,
-        "https://api.openai.com/v1",
+        (config as any).baseUrl || "https://api.openai.com/v1",
       );
     case "openrouter":
       return createOpenAICompatibleProvider(
         config,
-        "https://openrouter.ai/api/v1",
+        (config as any).baseUrl || "https://openrouter.ai/api/v1",
       );
     default:
       throw new Error(`Unknown LLM provider: ${config.provider}`);
