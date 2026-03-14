@@ -108,6 +108,17 @@ export interface AgentCashBalance {
   network: string;
 }
 
+
+export interface DashboardData {
+  status: StatusData;
+  tasks: { tasks: TaskData[]; events: ActivityEvent[] };
+  stats: StatsData;
+  wallet: WalletInfo | null;
+  knowledge: { entries: KnowledgeEntry[] };
+  feedback: { entries: FeedbackEntry[] };
+  config: ConfigData;
+}
+
 // --- Setup types ---
 
 export interface SetupStatus {
@@ -158,6 +169,7 @@ export interface ChatMessage {
 export const api = {
   // Dashboard
   getStatus: () => get<StatusData>("/api/status"),
+  getDashboard: () => get<DashboardData>("/api/dashboard"),
   getTasks: () => get<{ tasks: TaskData[]; events: ActivityEvent[] }>("/api/tasks"),
   getLogs: () => get<{ log: string }>("/api/logs"),
   getConfig: () => get<ConfigData>("/api/config"),

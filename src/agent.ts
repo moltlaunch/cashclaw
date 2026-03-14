@@ -140,6 +140,62 @@ function handleApi(
   }
 
   switch (pathname) {
+
+    case "/api/dashboard": {
+      // ⚡ Bolt: Aggregate 7 API calls into a single endpoint to reduce network overhead and React re-renders.
+      const statusData = {
+        running: ctx.heartbeat.state.running,
+        activeTasks: ctx.heartbeat.state.activeTasks.size,
+        totalPolls: ctx.heartbeat.state.totalPolls,
+        lastPoll: ctx.heartbeat.state.lastPoll,
+        startedAt: ctx.heartbeat.state.startedAt,
+        uptime: ctx.heartbeat.state.running
+          ? Date.now() - ctx.heartbeat.state.startedAt
+          : 0,
+        agentId: ctx.config.agentId,
+      };
+
+      const tasksData = {
+        tasks: [...ctx.heartbeat.state.activeTasks.values()],
+        events: ctx.heartbeat.state.events.slice(-50),
+      };
+
+      // Call loadKnowledge() once and assign it to a variable to optimize disk I/O
+      const cachedKnowledge = loadKnowledge();
+      const statsData = {
+        ...getFeedbackStats(),
+        studySessions: ctx.heartbeat.state.totalStudySessions,
+        knowledgeEntries: cachedKnowledge.length,
+      };
+
+      const now = Date.now();
+      if (!walletCache || now - walletCache.fetchedAt > WALLET_CACHE_TTL) {
+        cli.walletShow().then(info => {
+          walletCache = { info, fetchedAt: Date.now() };
+        }).catch(() => {});
+      }
+      const walletData = walletCache?.info || null;
+
+      const knowledgeData = { entries: cachedKnowledge };
+      const feedbackData = { entries: loadFeedback() };
+
+      const configData = {
+        ...ctx.config,
+        llm: { ...ctx.config.llm, apiKey: "***" },
+      };
+
+      json(res, {
+        status: statusData,
+        tasks: tasksData,
+        stats: statsData,
+        wallet: walletData,
+        knowledge: knowledgeData,
+        feedback: feedbackData,
+        config: configData,
+      });
+      break;
+    }
+
     case "/api/status":
       json(res, {
         running: ctx.heartbeat.state.running,

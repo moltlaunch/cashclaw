@@ -92,25 +92,18 @@ export function Dashboard() {
 
     async function poll() {
       try {
-        const [s, t, st, w, k, f, cfg] = await Promise.all([
-          api.getStatus(),
-          api.getTasks(),
-          api.getStats(),
-          api.getWalletCached().catch(() => null),
-          api.getKnowledge().catch(() => ({ entries: [] })),
-          api.getFeedback().catch(() => ({ entries: [] })),
-          api.getConfig().catch(() => null),
-        ]);
+        // ⚡ Bolt: Use a single aggregated endpoint to reduce network overhead and connections.
+        const dashboard = await api.getDashboard();
         if (!active) return;
-        setStatus(s);
-        setEvents([...t.events].reverse());
-        setStats(st);
-        setWallet(w);
-        setKnowledge(k.entries);
-        setFeedback(f.entries);
+        setStatus(dashboard.status);
+        setEvents([...dashboard.tasks.events].reverse());
+        setStats(dashboard.stats);
+        setWallet(dashboard.wallet);
+        setKnowledge(dashboard.knowledge.entries);
+        setFeedback(dashboard.feedback.entries);
         setError(null);
 
-        const cashEnabled = cfg?.agentCashEnabled ?? false;
+        const cashEnabled = dashboard.config?.agentCashEnabled ?? false;
         setAgentCashEnabled(cashEnabled);
         if (cashEnabled) {
           api.getAgentCashBalance()
