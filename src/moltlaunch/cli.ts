@@ -10,14 +10,14 @@ const REGISTER_TIMEOUT = 120_000;
 
 // HIGH FIX: Add argument validation to prevent command injection
 function validateArg(arg: string, argName: string): void {
-  // Allow alphanumeric, dash, dot, underscore, at-sign, space - safe for shell
-  const allowedPattern = /^[a-zA-Z0-9\-_@. ]*$/;
-  if (!allowedPattern.test(arg)) {
-    throw new Error(`Invalid characters in ${argName}. Only alphanumeric, dash, underscore, space, dot, @ allowed.`);
+  // Block shell metacharacters that could enable injection
+  const dangerousChars = /[;|&`$(){}[\]!#~<>\\]/;
+  if (dangerousChars.test(arg)) {
+    throw new Error(`Invalid characters in ${argName}. Shell metacharacters are not allowed.`);
   }
-  // Prevent args that look like flags or contain shell operators
-  if (arg.startsWith('-') || arg.includes(';') || arg.includes('&') || arg.includes('|') || arg.includes('`') || arg.includes('$')) {
-    throw new Error(`Potentially unsafe ${argName}: ${arg.slice(0, 50)}`);
+  // Block newlines (could break command boundaries)
+  if (arg.includes('\n') || arg.includes('\r')) {
+    throw new Error(`Newlines not allowed in ${argName}`);
   }
 }
 

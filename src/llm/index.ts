@@ -205,7 +205,7 @@ function createOpenAICompatibleProvider(
 
       const body: Record<string, unknown> = {
         model: config.model,
-        max_tokens: 4096,
+        max_completion_tokens: 4096,
         messages: toOpenAIMessages(messages),
       };
 
