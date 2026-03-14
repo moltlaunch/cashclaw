@@ -3,9 +3,9 @@ import path from "node:path";
 import os from "node:os";
 
 export interface LLMConfig {
-  provider: "anthropic" | "openai" | "openrouter";
+  provider: "anthropic" | "openai" | "openrouter" | "ollama";
   model: string;
-  apiKey: string;
+  apiKey?: string; // Optional for Ollama (local instance)
 }
 
 export interface PricingConfig {
@@ -90,7 +90,10 @@ export function saveConfig(config: CashClawConfig): void {
 export function isConfigured(): boolean {
   const config = loadConfig();
   if (!config) return false;
-  return Boolean(config.agentId && config.llm?.apiKey && config.llm?.provider);
+  if (!config.agentId || !config.llm?.provider) return false;
+  // Ollama doesn't require API key for local instances
+  if (config.llm.provider === "ollama") return true;
+  return Boolean(config.llm?.apiKey);
 }
 
 /** Save partial config fields, merging with existing config or defaults */
@@ -118,6 +121,7 @@ export function initConfig(opts: {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
     openrouter: "anthropic/claude-sonnet-4-20250514",
+    ollama: "llama3.1", // Default Ollama model (supports tool calling)
   };
 
   const config: CashClawConfig = {
