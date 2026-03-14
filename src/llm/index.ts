@@ -10,6 +10,58 @@ import type {
 
 export type { LLMProvider, LLMMessage, LLMResponse } from "./types.js";
 
+// HIGH FIX: Add retry logic with exponential backoff for API calls
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let lastError: unknown;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Don't retry on last attempt
+      if (attempt === maxRetries) break;
+      
+      // Check if error is retryable
+      const isRetryable = isRetryableError(error);
+      if (!isRetryable) throw error;
+      
+      // Calculate delay with exponential backoff + jitter
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000;
+      console.warn(`API call failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${Math.round(delay)}ms:`, 
+                   error instanceof Error ? error.message : String(error));
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError;
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    // Network errors, timeouts
+    if (error.message.includes('fetch') || error.message.includes('timeout') || 
+        error.message.includes('ENOTFOUND') || error.message.includes('ETIMEDOUT')) {
+      return true;
+    }
+    
+    // HTTP 5xx errors and rate limits (429)
+    const statusMatch = error.message.match(/API (\d+):/);
+    if (statusMatch) {
+      const status = parseInt(statusMatch[1]);
+      return status >= 500 || status === 429;
+    }
+  }
+  
+  return false;
+}
+
 function createAnthropicProvider(config: LLMConfig): LLMProvider {
   return {
     async chat(messages, tools) {
@@ -30,14 +82,18 @@ function createAnthropicProvider(config: LLMConfig): LLMProvider {
         body.tools = tools;
       }
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
+      // HIGH FIX: Add retry logic and timeout for API reliability
+      const res = await retryWithBackoff(async () => {
+        return await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000), // 30s timeout
+        });
       });
 
       if (!res.ok) {
@@ -157,10 +213,14 @@ function createOpenAICompatibleProvider(
         body.tools = toOpenAITools(tools);
       }
 
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
+      // HIGH FIX: Add retry logic and timeout for API reliability
+      const res = await retryWithBackoff(async () => {
+        return await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000), // 30s timeout
+        });
       });
 
       if (!res.ok) {

@@ -8,6 +8,41 @@ import { runStudySession } from "./loop/study.js";
 import { storeFeedback } from "./memory/feedback.js";
 import { appendLog } from "./memory/log.js";
 
+// Simple mutex class to prevent race conditions
+class Mutex {
+  private locked = false;
+  private waitQueue: (() => void)[] = [];
+
+  async lock(): Promise<void> {
+    if (!this.locked) {
+      this.locked = true;
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
+      this.waitQueue.push(resolve);
+    });
+  }
+
+  unlock(): void {
+    if (this.waitQueue.length > 0) {
+      const next = this.waitQueue.shift()!;
+      next();
+    } else {
+      this.locked = false;
+    }
+  }
+
+  async withLock<T>(fn: () => Promise<T> | T): Promise<T> {
+    await this.lock();
+    try {
+      return await fn();
+    } finally {
+      this.unlock();
+    }
+  }
+}
+
 export interface HeartbeatState {
   running: boolean;
   activeTasks: Map<string, Task>;
@@ -67,6 +102,9 @@ export function createHeartbeat(
   // Track task+status combos to prevent duplicate processing from WS+poll overlap
   const processedVersions = new Map<string, string>();
   const listeners: EventListener[] = [];
+  
+  // CRITICAL FIX: Add mutex to prevent race conditions in shared state
+  const stateMutex = new Mutex();
 
   function emit(event: Omit<ActivityEvent, "timestamp">) {
     const full: ActivityEvent = { ...event, timestamp: Date.now() };
@@ -79,6 +117,14 @@ export function createHeartbeat(
 
   function onEvent(fn: EventListener) {
     listeners.push(fn);
+  }
+
+  // HIGH FIX: Add cleanup function for event listeners to prevent memory leaks
+  function removeEventListener(fn: EventListener) {
+    const index = listeners.indexOf(fn);
+    if (index > -1) {
+      listeners.splice(index, 1);
+    }
   }
 
   // --- WebSocket ---
@@ -170,65 +216,71 @@ export function createHeartbeat(
   // --- Task handling (shared by WS + poll) ---
 
   function handleTaskEvent(task: Task) {
-    if (TERMINAL_STATUSES.has(task.status)) {
-      if (task.status === "completed" && task.ratedScore !== undefined) {
-        handleCompleted(task);
+    // CRITICAL FIX: Protect all shared state modifications with mutex
+    void stateMutex.withLock(async () => {
+      if (TERMINAL_STATUSES.has(task.status)) {
+        if (task.status === "completed" && task.ratedScore !== undefined) {
+          handleCompleted(task);
+        }
+        state.activeTasks.delete(task.id);
+        processedVersions.delete(task.id);
+        return;
       }
-      state.activeTasks.delete(task.id);
-      processedVersions.delete(task.id);
-      return;
-    }
 
-    // Dedup: skip if we already processed this exact task+status combo
-    const version = `${task.id}:${task.status}`;
-    if (processedVersions.get(task.id) === version && !processing.has(task.id)) {
-      state.activeTasks.set(task.id, task);
-      return;
-    }
+      // Dedup: skip if we already processed this exact task+status combo
+      const version = `${task.id}:${task.status}`;
+      if (processedVersions.get(task.id) === version && !processing.has(task.id)) {
+        state.activeTasks.set(task.id, task);
+        return;
+      }
 
-    if (processing.has(task.id)) return;
+      if (processing.has(task.id)) return;
 
-    if (task.status === "quoted" || task.status === "submitted") {
+      if (task.status === "quoted" || task.status === "submitted") {
+        state.activeTasks.set(task.id, task);
+        processedVersions.set(task.id, version);
+        return;
+      }
+
+      if (processing.size >= config.maxConcurrentTasks) return;
+
       state.activeTasks.set(task.id, task);
       processedVersions.set(task.id, version);
-      return;
-    }
+      processing.add(task.id);
 
-    if (processing.size >= config.maxConcurrentTasks) return;
+      emit({ type: "loop_start", taskId: task.id, message: `Agent loop started (${task.status})` });
+      appendLog(`Agent loop started for ${task.id} (${task.status})`);
 
-    state.activeTasks.set(task.id, task);
-    processedVersions.set(task.id, version);
-    processing.add(task.id);
-
-    emit({ type: "loop_start", taskId: task.id, message: `Agent loop started (${task.status})` });
-    appendLog(`Agent loop started for ${task.id} (${task.status})`);
-
-    runAgentLoop(llm, task, config)
-      .then((result: LoopResult) => {
-        const toolNames = result.toolCalls.map((tc) => tc.name).join(", ");
-        emit({
-          type: "loop_complete",
-          taskId: task.id,
-          message: `Loop done in ${result.turns} turn(s): [${toolNames}]`,
-        });
-        appendLog(`Loop done for ${task.id}: ${result.turns} turns, tools=[${toolNames}]`);
-
-        for (const tc of result.toolCalls) {
+      runAgentLoop(llm, task, config)
+        .then((result: LoopResult) => {
+          const toolNames = result.toolCalls.map((tc) => tc.name).join(", ");
           emit({
-            type: "tool_call",
+            type: "loop_complete",
             taskId: task.id,
-            message: `${tc.name}(${JSON.stringify(tc.input).slice(0, 100)}) → ${tc.success ? "ok" : "err"}`,
+            message: `Loop done in ${result.turns} turn(s): [${toolNames}]`,
           });
-        }
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        emit({ type: "error", taskId: task.id, message: `Loop error: ${msg}` });
-        appendLog(`Loop error for ${task.id}: ${msg}`);
-      })
-      .finally(() => {
-        processing.delete(task.id);
-      });
+          appendLog(`Loop done for ${task.id}: ${result.turns} turns, tools=[${toolNames}]`);
+
+          for (const tc of result.toolCalls) {
+            emit({
+              type: "tool_call",
+              taskId: task.id,
+              message: `${tc.name}(${JSON.stringify(tc.input).slice(0, 100)}) → ${tc.success ? "ok" : "err"}`,
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          emit({ type: "error", taskId: task.id, message: `Loop error: ${msg}` });
+          appendLog(`Loop error for ${task.id}: ${msg}`);
+        })
+        .finally(() => {
+          // CRITICAL FIX: Also protect processing.delete with mutex
+          void stateMutex.withLock(() => {
+            processing.delete(task.id);
+          });
+        });
+    });
   }
 
   // --- Polling (fallback / sync check) ---
@@ -278,15 +330,18 @@ export function createHeartbeat(
   function scheduleNext() {
     if (!state.running) return;
 
-    // Expire stale non-terminal tasks to prevent memory leaks
-    const now = Date.now();
-    for (const [id, task] of state.activeTasks) {
-      const taskTime = task.quotedAt ?? task.acceptedAt ?? task.submittedAt ?? state.startedAt;
-      if (!processing.has(id) && now - taskTime > TASK_EXPIRY_MS) {
-        state.activeTasks.delete(id);
-        processedVersions.delete(id);
+    // CRITICAL FIX: Protect task expiry cleanup with mutex
+    void stateMutex.withLock(() => {
+      // Expire stale non-terminal tasks to prevent memory leaks
+      const now = Date.now();
+      for (const [id, task] of state.activeTasks) {
+        const taskTime = task.quotedAt ?? task.acceptedAt ?? task.submittedAt ?? state.startedAt;
+        if (!processing.has(id) && now - taskTime > TASK_EXPIRY_MS) {
+          state.activeTasks.delete(id);
+          processedVersions.delete(id);
+        }
       }
-    }
+    });
 
     // Check if we should study while idle
     void maybeStudy();
@@ -369,10 +424,14 @@ export function createHeartbeat(
       timer = null;
     }
     disconnectWs();
+    
+    // HIGH FIX: Clear all event listeners to prevent memory leaks
+    listeners.length = 0;
+    
     appendLog("Heartbeat stopped");
   }
 
-  return { state, start, stop, onEvent };
+  return { state, start, stop, onEvent, removeEventListener };
 }
 
 export type Heartbeat = ReturnType<typeof createHeartbeat>;
