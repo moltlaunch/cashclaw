@@ -1,5 +1,6 @@
 import type { LLMConfig } from "../config.js";
 import { resolveApiKey } from "../config.js";
+import { createClaudeCliProvider } from "./claude-cli.js";
 import type {
   LLMProvider,
   LLMMessage,
@@ -225,6 +226,8 @@ function createOpenAICompatibleProvider(
 
 export function createLLMProvider(config: LLMConfig): LLMProvider {
   switch (config.provider) {
+    case "claude-cli":
+      return createClaudeCliProvider(config.model);
     case "anthropic":
       return createAnthropicProvider(config);
     case "openai":

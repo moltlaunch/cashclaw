@@ -102,14 +102,28 @@ async function cmdInit(flags: Record<string, string>): Promise<void> {
 
     // LLM provider
     let provider = (flags["provider"] ?? "") as LLMConfig["provider"];
-    const validProviders: LLMConfig["provider"][] = ["anthropic", "openai", "openrouter"];
+    const validProviders: LLMConfig["provider"][] = ["anthropic", "openai", "openrouter", "claude-cli"];
     if (!validProviders.includes(provider)) {
-      const raw = await prompt(rl, "LLM provider [anthropic/openai/openrouter] (default: anthropic): ");
-      provider = (raw.trim() || "anthropic") as LLMConfig["provider"];
+      const raw = await prompt(rl, "LLM provider [anthropic/openai/openrouter/claude-cli] (default: claude-cli): ");
+      provider = (raw.trim() || "claude-cli") as LLMConfig["provider"];
+    }
+
+    // claude-cli は API キー不要（OAuth認証）
+    if (provider === "claude-cli") {
+      // specialties は後で宣言されるため、ここでは flags から直接解析する
+      const claudeCliSpecialties = (flags["specialties"] ?? "")
+        .split(",").map((s: string) => s.trim()).filter(Boolean);
+      const model = flags["model"] ?? "claude-sonnet-4-6";
+      const config = initConfig({ agentId, provider, model, apiKey: "", specialties: claudeCliSpecialties });
+      console.log(`\nConfig saved to ${getConfigDir()}/cashclaw.json`);
+      console.log(`Agent ID: ${config.agentId}`);
+      console.log(`Provider: claude-cli (OAuth — no API key needed)`);
+      console.log(`\nRun "cashclaw-cli start" to start the agent.`);
+      return;
     }
 
     // API key: 環境変数参照モード（推奨）か直接指定かを選択する
-    const envKeyMap: Record<LLMConfig["provider"], string> = {
+    const envKeyMap: Record<string, string> = {
       anthropic: "ANTHROPIC_API_KEY",
       openai: "OPENAI_API_KEY",
       openrouter: "OPENROUTER_API_KEY",
@@ -158,7 +172,7 @@ async function cmdInit(flags: Record<string, string>): Promise<void> {
     }
 
     // Model
-    const modelDefaults: Record<LLMConfig["provider"], string> = {
+    const modelDefaults: Record<string, string> = {
       anthropic: "claude-sonnet-4-6",
       openai: "gpt-4o",
       openrouter: "anthropic/claude-sonnet-4-6",

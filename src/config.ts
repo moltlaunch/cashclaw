@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 
 export interface LLMConfig {
-  provider: "anthropic" | "openai" | "openrouter";
+  provider: "anthropic" | "openai" | "openrouter" | "claude-cli";
   model: string;
   /** API キーをそのまま保存する場合に使用（非推奨: apiKeyEnvVar を推奨）。 */
   apiKey: string;
@@ -109,8 +109,13 @@ export function resolveApiKey(llm: LLMConfig): string {
 export function isConfigured(): boolean {
   const config = loadConfig();
   if (!config) return false;
-  const apiKey = resolveApiKey(config.llm);
-  return Boolean(config.agentId && apiKey && config.llm?.provider);
+  // claude-cli は API キー不要（OAuth認証）
+  if (config.llm?.provider === "claude-cli") {
+    return Boolean(config.agentId && config.llm?.provider);
+  }
+  // apiKeyEnvVar が設定されている場合は実行時に解決するとみなす（起動時に env がなくても OK）
+  const hasApiKeySource = Boolean(config.llm?.apiKeyEnvVar) || Boolean(resolveApiKey(config.llm));
+  return Boolean(config.agentId && hasApiKeySource && config.llm?.provider);
 }
 
 /** Save partial config fields, merging with existing config or defaults */
@@ -141,6 +146,7 @@ export function initConfig(opts: {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
     openrouter: "anthropic/claude-sonnet-4-20250514",
+    "claude-cli": "claude-sonnet-4-6",
   };
 
   const llm: LLMConfig = {
