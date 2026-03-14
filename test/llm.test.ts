@@ -61,6 +61,33 @@ describe("LLM Providers", () => {
       expect(headers.Authorization).toBeUndefined();
     });
 
+    it("should handle empty string API key as no API key", async () => {
+      const configWithEmptyKey: LLMConfig = {
+        provider: "ollama",
+        model: "llama3.1",
+        apiKey: "",
+      };
+      const provider = createLLMProvider(configWithEmptyKey);
+      
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          choices: [{ message: { content: "Test" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      });
+
+      const messages: LLMMessage[] = [
+        { role: "user", content: "Test" }
+      ];
+
+      await provider.chat(messages);
+
+      const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      const headers = fetchCall[1].headers as Record<string, string>;
+      expect(headers.Authorization).toBeUndefined();
+    });
+
     it("should use provided API key if given", async () => {
       const configWithKey: LLMConfig = {
         ...ollamaConfig,
@@ -224,6 +251,22 @@ describe("LLM Providers", () => {
       
       await expect(provider.chat(messages, tools)).rejects.toThrow(
         "Ollama tool calling not supported for model llama3"
+      );
+    });
+
+    it("should handle connection errors (Ollama not running)", async () => {
+      const provider = createLLMProvider(ollamaConfig);
+      
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error("connect ECONNREFUSED 127.0.0.1:11434")
+      );
+
+      const messages: LLMMessage[] = [
+        { role: "user", content: "Hi" }
+      ];
+
+      await expect(provider.chat(messages)).rejects.toThrow(
+        "connect ECONNREFUSED 127.0.0.1:11434"
       );
     });
   });
