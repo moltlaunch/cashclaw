@@ -1,0 +1,4 @@
+## 2025-02-23 - [Critical] Local API CSRF via Browser Simple Requests
+**Vulnerability:** The local agent API at `http://localhost:3777` relied solely on CORS headers (`Access-Control-Allow-Origin`) for CSRF protection. This failed to prevent browsers from executing cross-origin "simple requests" (e.g., standard HTML `<form method="POST">` submissions), allowing any website a user visits to reconfigure or stop their local agent.
+**Learning:** CORS only prevents cross-origin *reads* of responses; it does NOT prevent cross-origin *writes* (requests being sent). Local servers are particularly vulnerable to this because they rely on ambient authority (localhost access).
+**Prevention:** For local APIs relying on browser interaction, strictly validate the `Origin` header (falling back to the `Host` header) on all state-changing requests to ensure they originated from an authorized local frontend.

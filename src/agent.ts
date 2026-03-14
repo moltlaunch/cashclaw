@@ -76,6 +76,37 @@ function createServer(ctx: ServerContext): http.Server {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
     if (url.pathname.startsWith("/api/")) {
+      // CSRF Protection: For state-changing requests, verify the Origin header
+      // CORS only prevents cross-origin reads. A malicious site can still send cross-origin
+      // POST requests (e.g. via hidden <form>) to local endpoints unless Origin is verified.
+      if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
+        const origin = req.headers.origin;
+        if (origin) {
+          try {
+            const originUrl = new URL(origin);
+            if (originUrl.hostname !== "localhost" && originUrl.hostname !== "127.0.0.1") {
+              res.writeHead(403, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Forbidden: Invalid Origin" }));
+              return;
+            }
+          } catch {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Forbidden: Malformed Origin" }));
+            return;
+          }
+        } else {
+          // If no Origin is provided (e.g. direct curl), we can allow it or check Host.
+          // Browsers always send Origin for cross-origin POST requests.
+          // To be strict against simple requests, we can check the Host header matches localhost.
+          const host = req.headers.host;
+          if (host && !host.startsWith("localhost:") && !host.startsWith("127.0.0.1:")) {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Forbidden: Invalid Host" }));
+            return;
+          }
+        }
+      }
+
       handleApi(url.pathname, req, res, ctx);
       return;
     }
