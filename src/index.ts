@@ -13,7 +13,8 @@ async function main() {
     : process.platform === "win32"
       ? "start"
       : "xdg-open";
-  execFileCb(opener, [url], () => {});
+  // LOW FIX: Add timeout to prevent hanging browser process
+  execFileCb(opener, [url], { timeout: 5000 }, () => {});
 
   // Graceful shutdown
   const shutdown = () => {

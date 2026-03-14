@@ -8,6 +8,28 @@ const MLTL_BIN = "mltl";
 const DEFAULT_TIMEOUT = 30_000;
 const REGISTER_TIMEOUT = 120_000;
 
+// HIGH FIX: Add argument validation to prevent command injection
+function validateArg(arg: string, argName: string): void {
+  // Block shell metacharacters that could enable injection
+  const dangerousChars = /[;|&`$(){}[\]!#~<>\\]/;
+  if (dangerousChars.test(arg)) {
+    throw new Error(`Invalid characters in ${argName}. Shell metacharacters are not allowed.`);
+  }
+  // Block newlines (could break command boundaries)
+  if (arg.includes('\n') || arg.includes('\r')) {
+    throw new Error(`Newlines not allowed in ${argName}`);
+  }
+}
+
+function validateArgs(args: string[], context: string): void {
+  for (const arg of args) {
+    if (typeof arg !== 'string') {
+      throw new Error(`Non-string argument in ${context}: ${typeof arg}`);
+    }
+    validateArg(arg, `${context} argument`);
+  }
+}
+
 interface CliError {
   error: string;
   code?: string;
@@ -18,6 +40,9 @@ async function mltl<T>(
   timeout = DEFAULT_TIMEOUT,
 ): Promise<T> {
   try {
+    // HIGH FIX: Validate all arguments to prevent command injection
+    validateArgs(args, "mltl command");
+    
     // --json is a per-subcommand flag, appended at the end
     const { stdout } = await execFileAsync(MLTL_BIN, [...args, "--json"], {
       timeout,

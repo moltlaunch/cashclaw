@@ -22,6 +22,46 @@ import * as cli from "./moltlaunch/cli.js";
 const PORT = 3777;
 const MAX_BODY_BYTES = 1_048_576; // 1 MB
 
+// HIGH FIX: Rate limiting to prevent abuse
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 600; // 600 requests per minute per IP (dashboard makes many API calls)
+
+function checkRateLimit(clientIp: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(clientIp);
+  
+  if (!entry || now > entry.resetTime) {
+    // New window
+    rateLimitMap.set(clientIp, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  
+  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  entry.count++;
+  return true;
+}
+
+function cleanupRateLimit(): void {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap) {
+    if (now > entry.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}
+
+// Cleanup old rate limit entries every 5 minutes
+setInterval(cleanupRateLimit, 5 * 60 * 1000);
+
 type ServerMode = "setup" | "running";
 
 interface ServerContext {
@@ -61,6 +101,23 @@ export async function startAgent(): Promise<http.Server> {
 
 function createServer(ctx: ServerContext): http.Server {
   const server = http.createServer((req, res) => {
+    // HIGH FIX: Rate limiting to prevent abuse
+    const clientIp = req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Rate limit exceeded' }));
+      return;
+    }
+
+    // HIGH FIX: Host header validation to prevent DNS rebinding attacks
+    const hostHeader = req.headers.host?.split(':')[0] || '';
+    const allowedHosts = ['localhost', '127.0.0.1', '0.0.0.0', ''];
+    if (hostHeader && !allowedHosts.includes(hostHeader)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid Host header' }));
+      return;
+    }
+
     // Restrict CORS to same-origin only — prevents cross-site request forgery
     const allowedOrigin = `http://localhost:${PORT}`;
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
@@ -440,15 +497,31 @@ async function handleConfigUpdate(
 
     if (updates.specialties) ctx.config.specialties = updates.specialties;
     if (updates.pricing) {
+      // CRITICAL FIX: Enhanced ETH amount validation to prevent negative values, NaN, overflow
       const ethPattern = /^\d+(\.\d{1,18})?$/;
+      const MAX_ETH_AMOUNT = 1000000; // 1M ETH max to prevent overflow
+      
       if (!ethPattern.test(updates.pricing.baseRateEth) || !ethPattern.test(updates.pricing.maxRateEth)) {
         json(res, { error: "Invalid ETH amount format" }, 400);
         return;
       }
-      if (parseFloat(updates.pricing.baseRateEth) > parseFloat(updates.pricing.maxRateEth)) {
+      
+      const baseRate = parseFloat(updates.pricing.baseRateEth);
+      const maxRate = parseFloat(updates.pricing.maxRateEth);
+      
+      // Check for NaN, negative, zero, or excessive values
+      if (isNaN(baseRate) || isNaN(maxRate) || 
+          baseRate <= 0 || maxRate <= 0 || 
+          baseRate > MAX_ETH_AMOUNT || maxRate > MAX_ETH_AMOUNT) {
+        json(res, { error: "ETH amounts must be positive numbers under 1M ETH" }, 400);
+        return;
+      }
+      
+      if (baseRate > maxRate) {
         json(res, { error: "baseRate cannot exceed maxRate" }, 400);
         return;
       }
+      
       ctx.config.pricing = updates.pricing;
     }
     if (updates.autoQuote !== undefined) ctx.config.autoQuote = updates.autoQuote;
@@ -496,12 +569,14 @@ async function handleConfigUpdate(
       }
       ctx.config.llm = newLlm;
 
-      // Restart heartbeat with new LLM provider
+      // HIGH FIX: Atomic heartbeat restart - create new before stopping old
       if (ctx.heartbeat) {
-        ctx.heartbeat.stop();
+        const oldHeartbeat = ctx.heartbeat;
         const llm = createLLMProvider(ctx.config.llm);
         ctx.heartbeat = createHeartbeat(ctx.config, llm);
         ctx.heartbeat.start();
+        // Stop old heartbeat after new one is running
+        oldHeartbeat.stop();
       }
     }
 

@@ -2,7 +2,58 @@ import type { CashClawConfig } from "../config.js";
 import { loadKnowledge, getRelevantKnowledge } from "../memory/knowledge.js";
 import { searchMemory } from "../memory/search.js";
 
-export function buildSystemPrompt(config: CashClawConfig, taskDescription?: string): string {
+// HIGH FIX: Prompt injection defense - sanitize user input
+function sanitizeTaskDescription(input: string): string {
+  if (!input || typeof input !== 'string') return '';
+  
+  // Remove potentially dangerous prompt injection patterns
+  const dangerous = [
+    // Direct instruction attempts
+    /\bIgnore (?:the|all) (?:above|previous) instructions?\b/gi,
+    /\bForget (?:everything|all) (?:above|previous)\b/gi,
+    /\bYou are now\b/gi,
+    /\bActing as\b/gi,
+    /\bPretend (?:to be|you are)\b/gi,
+    /\bSystem prompt\b/gi,
+    /\bOverride (?:your|the)\b/gi,
+    
+    // Role manipulation
+    /\bI am (?:your|the) (?:creator|developer|admin|operator)\b/gi,
+    /\bUpdate (?:your|the) (?:instructions|rules|system)\b/gi,
+    /\bNew instructions?\b/gi,
+    
+    // Data exfiltration attempts
+    /\bShow me (?:your|the) (?:system|internal|private|secret)\b/gi,
+    /\bWhat (?:are|is) (?:your|the) (?:instructions|prompt|rules)\b/gi,
+    
+    // Markdown/HTML injection
+    /```[\s\S]*?```/g,
+    /<[^>]+>/g,
+  ];
+  
+  let sanitized = input;
+  
+  // Remove dangerous patterns
+  for (const pattern of dangerous) {
+    sanitized = sanitized.replace(pattern, '[filtered]');
+  }
+  
+  // Limit length to prevent large prompt attacks
+  const maxLength = 2000;
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.slice(0, maxLength) + '[truncated]';
+  }
+  
+  // Remove excessive whitespace and control characters
+  sanitized = sanitized
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control chars
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+  
+  return sanitized;
+}
+
+export async function buildSystemPrompt(config: CashClawConfig, taskDescription?: string): Promise<string> {
   const specialties = config.specialties.length > 0
     ? config.specialties.join(", ")
     : "general-purpose";
@@ -66,10 +117,12 @@ You receive tasks from clients and use tools to take actions. You MUST use tools
     }
   }
 
+  // HIGH FIX: Sanitize task description before using in search and context
   // Inject task-relevant memory via BM25 search (if we have a task description)
   // Falls back to specialty-based knowledge when no task is provided (e.g. study sessions)
   if (taskDescription) {
-    const hits = searchMemory(taskDescription, 5);
+    const sanitizedTask = sanitizeTaskDescription(taskDescription);
+    const hits = await searchMemory(sanitizedTask, 5);
     if (hits.length > 0) {
       const entries = hits.map((h) => `- ${h.text.slice(0, 300)}`).join("\n");
       prompt += `\n\n## Relevant Context\n\nFrom your memory — past knowledge and feedback relevant to this task:\n${entries}`;
