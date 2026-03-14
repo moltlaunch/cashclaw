@@ -38,7 +38,7 @@ describe("LLM Providers", () => {
       expect(fetchCall[0]).toBe("http://localhost:11434/v1/chat/completions");
     });
 
-    it("should include dummy API key when not provided", async () => {
+    it("should not require API key for local Ollama", async () => {
       const provider = createLLMProvider(ollamaConfig);
       
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -57,7 +57,8 @@ describe("LLM Providers", () => {
 
       const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const headers = fetchCall[1].headers as Record<string, string>;
-      expect(headers.Authorization).toBe("Bearer dummy");
+      // Ollama doesn't require Authorization header for local instance
+      expect(headers.Authorization).toBeUndefined();
     });
 
     it("should use provided API key if given", async () => {
@@ -187,7 +188,7 @@ describe("LLM Providers", () => {
         { role: "user", content: "Hi" }
       ];
 
-      await expect(provider.chat(messages)).rejects.toThrow("LLM API 500: Internal Server Error");
+      await expect(provider.chat(messages)).rejects.toThrow("Ollama API 500: Internal Server Error");
     });
 
     it("should handle non-JSON error responses", async () => {
@@ -203,7 +204,27 @@ describe("LLM Providers", () => {
         { role: "user", content: "Hi" }
       ];
 
-      await expect(provider.chat(messages)).rejects.toThrow("LLM API 404: Not Found");
+      await expect(provider.chat(messages)).rejects.toThrow("Ollama API 404: Not Found");
+    });
+
+    it("should provide helpful error for unsupported tool calling", async () => {
+      const provider = createLLMProvider(ollamaConfig);
+      
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve("tool calling not supported"),
+      });
+
+      const messages: LLMMessage[] = [
+        { role: "user", content: "Hi" }
+      ];
+
+      const tools = [{ name: "test", description: "test", input_schema: { type: "object" } }];
+      
+      await expect(provider.chat(messages, tools)).rejects.toThrow(
+        "Ollama tool calling not supported for model llama3"
+      );
     });
   });
 
