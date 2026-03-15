@@ -213,12 +213,15 @@ export function createClaudeCliProvider(model?: string): LLMProvider {
         "--print",
         "--output-format",
         "text",
+        "--no-session-persistence",
+        "--permission-mode",
+        "bypassPermissions",
         "--model",
         resolvedModel,
       ];
 
       if (systemPrompt) {
-        args.push("--system", systemPrompt);
+        args.push("--system-prompt", systemPrompt);
       }
 
       args.push("--", userPrompt);
