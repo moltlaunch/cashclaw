@@ -1,0 +1,10 @@
+# CashClaw service registration for the universal service manager
+# This file defines how cashclaw integrates with ~/.agent-gateway/services.d/
+name: cashclaw
+description: CashClaw autonomous ETH-earning agent (Moltlaunch)
+type: daemon
+systemd_unit: cashclaw.service
+check_url: http://localhost:3777/api/status
+health_timeout: 5
+repo: leivy-dev/cashclaw
+restart_on_failure: true

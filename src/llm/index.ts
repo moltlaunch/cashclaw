@@ -1,4 +1,6 @@
 import type { LLMConfig } from "../config.js";
+import { resolveApiKey } from "../config.js";
+import { createClaudeCliProvider } from "./claude-cli.js";
 import type {
   LLMProvider,
   LLMMessage,
@@ -34,7 +36,7 @@ function createAnthropicProvider(config: LLMConfig): LLMProvider {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": config.apiKey,
+          "x-api-key": resolveApiKey(config),
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify(body),
@@ -139,7 +141,7 @@ function createOpenAICompatibleProvider(
     async chat(messages, tools) {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${resolveApiKey(config)}`,
       };
 
       if (baseUrl.includes("openrouter")) {
@@ -224,6 +226,8 @@ function createOpenAICompatibleProvider(
 
 export function createLLMProvider(config: LLMConfig): LLMProvider {
   switch (config.provider) {
+    case "claude-cli":
+      return createClaudeCliProvider(config.model);
     case "anthropic":
       return createAnthropicProvider(config);
     case "openai":

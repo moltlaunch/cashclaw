@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import WebSocket from "ws";
 import type { CashClawConfig } from "./config.js";
 import type { LLMProvider } from "./llm/types.js";
@@ -7,6 +8,9 @@ import { runAgentLoop, type LoopResult } from "./loop/index.js";
 import { runStudySession } from "./loop/study.js";
 import { storeFeedback } from "./memory/feedback.js";
 import { appendLog } from "./memory/log.js";
+
+// 8 hours between periodic X posts
+const X_POST_INTERVAL_MS = 8 * 60 * 60 * 1000;
 
 export interface HeartbeatState {
   running: boolean;
@@ -18,11 +22,12 @@ export interface HeartbeatState {
   wsConnected: boolean;
   lastStudyTime: number;
   totalStudySessions: number;
+  lastXPostTime: number;
 }
 
 export interface ActivityEvent {
   timestamp: number;
-  type: "poll" | "loop_start" | "loop_complete" | "tool_call" | "feedback" | "error" | "ws" | "study";
+  type: "poll" | "loop_start" | "loop_complete" | "tool_call" | "feedback" | "error" | "ws" | "study" | "xpost";
   taskId?: string;
   message: string;
 }
@@ -38,6 +43,10 @@ const WS_INITIAL_RECONNECT_MS = 5_000;
 const WS_MAX_RECONNECT_MS = 300_000; // 5 min cap
 // When WS is connected, poll infrequently as a sync check
 const WS_POLL_INTERVAL_MS = 120_000;
+// Keepalive ping to prevent proxy/server idle timeout
+const WS_PING_INTERVAL_MS = 20_000;
+// If no pong within this window after a ping, assume connection is dead
+const WS_PONG_TIMEOUT_MS = 10_000;
 // Expire non-terminal tasks after 7 days to prevent memory leaks
 const TASK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -55,11 +64,14 @@ export function createHeartbeat(
     wsConnected: false,
     lastStudyTime: 0,
     totalStudySessions: 0,
+    lastXPostTime: 0,
   };
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let ws: WebSocket | null = null;
   let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let wsPingTimer: ReturnType<typeof setInterval> | null = null;
+  let wsPongTimer: ReturnType<typeof setTimeout> | null = null;
   let wsReconnectDelay = WS_INITIAL_RECONNECT_MS;
   let wsFailLogged = false;
   const processing = new Set<string>();
@@ -83,8 +95,27 @@ export function createHeartbeat(
 
   // --- WebSocket ---
 
+  function stopWsTimers() {
+    if (wsPingTimer) {
+      clearInterval(wsPingTimer);
+      wsPingTimer = null;
+    }
+    if (wsPongTimer) {
+      clearTimeout(wsPongTimer);
+      wsPongTimer = null;
+    }
+  }
+
   function connectWs() {
     if (!state.running || !config.agentId) return;
+
+    // Clean up the old WebSocket before creating a new one to prevent stale listeners
+    if (ws) {
+      ws.removeAllListeners();
+      ws.terminate();
+      ws = null;
+    }
+    stopWsTimers();
 
     try {
       ws = new WebSocket(`${WS_URL}/${config.agentId}`);
@@ -95,6 +126,25 @@ export function createHeartbeat(
         wsFailLogged = false;
         emit({ type: "ws", message: "WebSocket connected" });
         appendLog("WebSocket connected");
+
+        // Keepalive: periodic pings + pong timeout to detect dead connections
+        wsPingTimer = setInterval(() => {
+          if (ws?.readyState !== WebSocket.OPEN) return;
+          wsPongTimer = setTimeout(() => {
+            // No pong received — connection is dead, force reconnect
+            emit({ type: "ws", message: "WebSocket pong timeout — forcing reconnect" });
+            appendLog("WebSocket pong timeout — forcing reconnect");
+            ws?.terminate();
+          }, WS_PONG_TIMEOUT_MS);
+          ws.ping();
+        }, WS_PING_INTERVAL_MS);
+
+        ws?.on("pong", () => {
+          if (wsPongTimer) {
+            clearTimeout(wsPongTimer);
+            wsPongTimer = null;
+          }
+        });
       });
 
       ws.on("message", (data: WebSocket.Data) => {
@@ -119,6 +169,7 @@ export function createHeartbeat(
 
       ws.on("close", () => {
         state.wsConnected = false;
+        stopWsTimers();
         // Only log the first disconnect, suppress repeated failures
         if (!wsFailLogged) {
           emit({ type: "ws", message: "WebSocket disconnected — retrying in background" });
@@ -133,8 +184,9 @@ export function createHeartbeat(
           emit({ type: "error", message: `WebSocket error: ${err.message}` });
           wsFailLogged = true;
         }
+        // Do NOT call scheduleWsReconnect here — ws.close() will trigger the "close"
+        // event which handles reconnect. Calling it here causes double backoff.
         ws?.close();
-        scheduleWsReconnect();
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -159,9 +211,10 @@ export function createHeartbeat(
       clearTimeout(wsReconnectTimer);
       wsReconnectTimer = null;
     }
+    stopWsTimers();
     if (ws) {
       ws.removeAllListeners();
-      ws.close();
+      ws.terminate();
       ws = null;
     }
     state.wsConnected = false;
@@ -273,6 +326,39 @@ export function createHeartbeat(
       message: `Completed — rated ${task.ratedScore}/5`,
     });
     appendLog(`Task ${task.id} completed — score ${task.ratedScore}/5`);
+
+    // Trigger a proof-of-work X post when a task is completed with a good rating
+    if (task.ratedScore >= 4) {
+      triggerXPost(true);
+    }
+  }
+
+  function triggerXPost(force = false) {
+    const snsPath = process.env["SNS_AUTOMATION_PATH"];
+    const personaId = process.env["X_PERSONA_ID"];
+    if (snsPath === undefined || snsPath === "" || personaId === undefined || personaId === "") return;
+
+    const args = ["run", "x:post", "--persona", personaId];
+    if (force) args.push("--force");
+
+    emit({ type: "xpost", message: `Triggering X post${force ? " (force)" : ""}` });
+    appendLog(`Triggering X post${force ? " (force)" : ""}`);
+
+    const result = spawnSync("bun", args, {
+      cwd: snsPath,
+      timeout: 120_000,
+      env: { ...process.env },
+    });
+
+    if (result.status !== 0) {
+      const stderr = result.stderr?.toString().slice(0, 200) ?? "unknown error";
+      emit({ type: "xpost", message: `X post failed: ${stderr}` });
+      appendLog(`X post failed: ${stderr}`);
+    } else {
+      state.lastXPostTime = Date.now();
+      emit({ type: "xpost", message: "X post succeeded" });
+      appendLog("X post succeeded");
+    }
   }
 
   function scheduleNext() {
@@ -290,6 +376,9 @@ export function createHeartbeat(
 
     // Check if we should study while idle
     void maybeStudy();
+
+    // Check if we should post to X while idle
+    void maybeXPost();
 
     // If WebSocket is connected, poll infrequently as a sync check
     if (state.wsConnected) {
@@ -349,6 +438,31 @@ export function createHeartbeat(
     }
   }
 
+  let xposting = false;
+
+  async function maybeXPost() {
+    const snsPath = process.env["SNS_AUTOMATION_PATH"];
+    const personaId = process.env["X_PERSONA_ID"];
+    if (snsPath === undefined || snsPath === "" || personaId === undefined || personaId === "") return;
+    if (xposting) return;
+    if (processing.size > 0) return;
+
+    // Don't post if there are tasks needing action
+    const hasUrgent = [...state.activeTasks.values()].some(
+      (t) => t.status === "requested" || t.status === "revision" || t.status === "accepted",
+    );
+    if (hasUrgent) return;
+
+    if (Date.now() - state.lastXPostTime < X_POST_INTERVAL_MS) return;
+
+    xposting = true;
+    try {
+      triggerXPost(false);
+    } finally {
+      xposting = false;
+    }
+  }
+
   function start() {
     if (state.running) return;
     state.running = true;
@@ -356,6 +470,10 @@ export function createHeartbeat(
     // Don't study immediately on restart — wait one full interval
     if (state.lastStudyTime === 0) {
       state.lastStudyTime = Date.now();
+    }
+    // Don't post to X immediately on restart — wait one full interval
+    if (state.lastXPostTime === 0) {
+      state.lastXPostTime = Date.now();
     }
     appendLog("Heartbeat started");
     connectWs();
