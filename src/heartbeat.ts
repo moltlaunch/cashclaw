@@ -38,6 +38,10 @@ const WS_INITIAL_RECONNECT_MS = 5_000;
 const WS_MAX_RECONNECT_MS = 300_000; // 5 min cap
 // When WS is connected, poll infrequently as a sync check
 const WS_POLL_INTERVAL_MS = 120_000;
+// Keepalive ping to prevent proxy/server idle timeout
+const WS_PING_INTERVAL_MS = 20_000;
+// If no pong within this window after a ping, assume connection is dead
+const WS_PONG_TIMEOUT_MS = 10_000;
 // Expire non-terminal tasks after 7 days to prevent memory leaks
 const TASK_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -60,6 +64,8 @@ export function createHeartbeat(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let ws: WebSocket | null = null;
   let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let wsPingTimer: ReturnType<typeof setInterval> | null = null;
+  let wsPongTimer: ReturnType<typeof setTimeout> | null = null;
   let wsReconnectDelay = WS_INITIAL_RECONNECT_MS;
   let wsFailLogged = false;
   const processing = new Set<string>();
@@ -83,8 +89,27 @@ export function createHeartbeat(
 
   // --- WebSocket ---
 
+  function stopWsTimers() {
+    if (wsPingTimer) {
+      clearInterval(wsPingTimer);
+      wsPingTimer = null;
+    }
+    if (wsPongTimer) {
+      clearTimeout(wsPongTimer);
+      wsPongTimer = null;
+    }
+  }
+
   function connectWs() {
     if (!state.running || !config.agentId) return;
+
+    // Clean up the old WebSocket before creating a new one to prevent stale listeners
+    if (ws) {
+      ws.removeAllListeners();
+      ws.terminate();
+      ws = null;
+    }
+    stopWsTimers();
 
     try {
       ws = new WebSocket(`${WS_URL}/${config.agentId}`);
@@ -95,6 +120,25 @@ export function createHeartbeat(
         wsFailLogged = false;
         emit({ type: "ws", message: "WebSocket connected" });
         appendLog("WebSocket connected");
+
+        // Keepalive: periodic pings + pong timeout to detect dead connections
+        wsPingTimer = setInterval(() => {
+          if (ws?.readyState !== WebSocket.OPEN) return;
+          wsPongTimer = setTimeout(() => {
+            // No pong received — connection is dead, force reconnect
+            emit({ type: "ws", message: "WebSocket pong timeout — forcing reconnect" });
+            appendLog("WebSocket pong timeout — forcing reconnect");
+            ws?.terminate();
+          }, WS_PONG_TIMEOUT_MS);
+          ws.ping();
+        }, WS_PING_INTERVAL_MS);
+
+        ws?.on("pong", () => {
+          if (wsPongTimer) {
+            clearTimeout(wsPongTimer);
+            wsPongTimer = null;
+          }
+        });
       });
 
       ws.on("message", (data: WebSocket.Data) => {
@@ -119,6 +163,7 @@ export function createHeartbeat(
 
       ws.on("close", () => {
         state.wsConnected = false;
+        stopWsTimers();
         // Only log the first disconnect, suppress repeated failures
         if (!wsFailLogged) {
           emit({ type: "ws", message: "WebSocket disconnected — retrying in background" });
@@ -133,8 +178,9 @@ export function createHeartbeat(
           emit({ type: "error", message: `WebSocket error: ${err.message}` });
           wsFailLogged = true;
         }
+        // Do NOT call scheduleWsReconnect here — ws.close() will trigger the "close"
+        // event which handles reconnect. Calling it here causes double backoff.
         ws?.close();
-        scheduleWsReconnect();
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -159,9 +205,10 @@ export function createHeartbeat(
       clearTimeout(wsReconnectTimer);
       wsReconnectTimer = null;
     }
+    stopWsTimers();
     if (ws) {
       ws.removeAllListeners();
-      ws.close();
+      ws.terminate();
       ws = null;
     }
     state.wsConnected = false;

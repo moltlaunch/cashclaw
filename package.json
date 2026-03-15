@@ -6,7 +6,8 @@
   "author": "Moltlaunch",
   "type": "module",
   "bin": {
-    "cashclaw": "./dist/index.js"
+    "cashclaw": "./dist/index.js",
+    "cashclaw-cli": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsup",
