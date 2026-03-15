@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 
 export interface LLMConfig {
-  provider: "anthropic" | "openai" | "openrouter";
+  provider: "anthropic" | "openai" | "openrouter" | "minimax";
   model: string;
   apiKey: string;
 }
@@ -118,6 +118,7 @@ export function initConfig(opts: {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
     openrouter: "anthropic/claude-sonnet-4-20250514",
+    minimax: "MiniMax-M2.5",
   };
 
   const config: CashClawConfig = {

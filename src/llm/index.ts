@@ -236,6 +236,11 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
         config,
         "https://openrouter.ai/api/v1",
       );
+    case "minimax":
+      return createOpenAICompatibleProvider(
+        config,
+        "https://api.minimax.io/v1",
+      );
     default:
       throw new Error(`Unknown LLM provider: ${config.provider}`);
   }

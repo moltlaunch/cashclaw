@@ -9,6 +9,7 @@ const PROVIDERS = [
   { value: "anthropic", label: "ANTHROPIC", desc: "Claude models", model: "claude-sonnet-4-20250514" },
   { value: "openai", label: "OPENAI", desc: "GPT-4o", model: "gpt-4o" },
   { value: "openrouter", label: "OPENROUTER", desc: "Multi-provider", model: "openai/gpt-5.4" },
+  { value: "minimax", label: "MINIMAX", desc: "MiniMax M2.5", model: "MiniMax-M2.5" },
 ];
 
 export function LLMStep({ onNext }: LLMStepProps) {
