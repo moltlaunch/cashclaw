@@ -17,6 +17,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@grammyjs/auto-retry": "^2.0.2",
+    "grammy": "^1.41.1",
     "minisearch": "^7.2.0",
     "viem": "^2.23.0",
     "ws": "^8.19.0"
