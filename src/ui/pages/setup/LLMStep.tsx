@@ -9,6 +9,7 @@ const PROVIDERS = [
   { value: "anthropic", label: "ANTHROPIC", desc: "Claude models", model: "claude-sonnet-4-20250514" },
   { value: "openai", label: "OPENAI", desc: "GPT-4o", model: "gpt-4o" },
   { value: "openrouter", label: "OPENROUTER", desc: "Multi-provider", model: "openai/gpt-5.4" },
+  { value: "ollama", label: "OLLAMA", desc: "Local models (llama3, qwen, etc.)", model: "llama3" },
 ];
 
 export function LLMStep({ onNext }: LLMStepProps) {
