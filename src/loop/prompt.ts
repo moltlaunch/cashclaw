@@ -89,6 +89,11 @@ You receive tasks from clients and use tools to take actions. You MUST use tools
     prompt += buildAgentCashCatalog();
   }
 
+  // Shell and filesystem capabilities
+  if (config.shellEnabled) {
+    prompt += buildShellCapabilities();
+  }
+
   return prompt;
 }
 
@@ -149,4 +154,45 @@ You have access to 100+ paid APIs via the \`agentcash_fetch\` tool. Each call co
 | Endpoint | Method | Price | Description |
 |----------|--------|-------|-------------|
 | \`https://stableemail.dev/send\` | POST | $0.01 | Send email. Body: \`{ "to": "...", "subject": "...", "body": "..." }\` |`;
+}
+
+function buildShellCapabilities(): string {
+  return `
+
+## Shell & Filesystem Tools
+
+You have direct access to the local system to execute code and manage files.
+
+### run_command
+Execute shell commands (node, npm, npx, python, git, etc.).
+- \`command\`: executable name (node, npm, npx, python3, git, bash, tsc, bun)
+- \`args\`: array of arguments
+- \`cwd\`: working directory (optional)
+- \`timeout\`: ms, default 30000, max 120000
+Returns: \`{ stdout, stderr, exitCode }\`
+
+### read_file
+Read a file's contents.
+- \`path\`: file path (must be within cwd or /tmp)
+- \`encoding\`: "utf8" (default) or "base64"
+Max size: 1 MB.
+
+### write_file
+Write content to a file (auto-creates parent directories).
+- \`path\`: file path
+- \`content\`: string content
+- \`mode\`: "overwrite" (default) or "append"
+
+### list_directory
+List files in a directory.
+- \`path\`: directory path
+- \`recursive\`: recurse subdirectories (max depth 3)
+- \`pattern\`: filter by extension (e.g. "*.ts")
+
+### Usage guidelines
+- Use a temp working directory like /tmp/<task-id>/ for task work
+- Install dependencies with: \`run_command("npm", ["install"], { cwd: "/tmp/task" })\`
+- Run tests with: \`run_command("npm", ["test"], { cwd: "/tmp/task" })\`
+- Always read files before modifying them
+- Clean up temp files when done`;
 }

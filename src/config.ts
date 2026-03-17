@@ -40,6 +40,7 @@ export interface CashClawConfig {
   learningEnabled: boolean;
   studyIntervalMs: number;
   agentCashEnabled: boolean;
+  shellEnabled: boolean;
 }
 
 const CONFIG_DIR = path.join(os.homedir(), ".cashclaw");
@@ -56,6 +57,7 @@ const DEFAULT_CONFIG: Omit<CashClawConfig, "agentId" | "llm"> = {
   learningEnabled: true,
   studyIntervalMs: 1_800_000, // 30 minutes
   agentCashEnabled: false,
+  shellEnabled: false,
 };
 
 export function loadConfig(): CashClawConfig | null {
