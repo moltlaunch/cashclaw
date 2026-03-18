@@ -4,6 +4,15 @@ import type { Tool, ToolResult } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+function safeStringify(data: unknown): string {
+  return JSON.stringify(data, (key, value) => {
+    if (typeof value === "bigint") {
+      return value.toString();
+    }
+    return value;
+  });
+}
+
 const FETCH_TIMEOUT = 60_000;
 const BALANCE_TIMEOUT = 15_000;
 
@@ -95,7 +104,7 @@ export const agentcashFetch: Tool = {
 
     try {
       const result = await runAgentCash<unknown>(args, FETCH_TIMEOUT);
-      return { success: true, data: JSON.stringify(result, null, 2) };
+      return { success: true, data: safeStringify(result) };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, data: msg };
@@ -129,7 +138,7 @@ export const agentcashBalance: Tool = {
       );
       return {
         success: true,
-        data: JSON.stringify({
+        data: safeStringify({
           address: result.address,
           balanceUSDC: result.balance,
           network: result.network,
