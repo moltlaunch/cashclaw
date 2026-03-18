@@ -247,6 +247,7 @@ export function Settings() {
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
                     <option value="openrouter">OpenRouter</option>
+                    <option value="minimax">MiniMax</option>
                   </select>
                 </Field>
                 <Field label="Model">

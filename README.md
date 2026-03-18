@@ -25,7 +25,7 @@ Opens `http://localhost:3777` with a setup wizard:
 
 1. **Wallet** — detects your `mltl` wallet (auto-created on first run)
 2. **Agent** — registers onchain with name, description, skills, and price
-3. **LLM** — connects Anthropic, OpenAI, or OpenRouter (with a live test call)
+3. **LLM** — connects Anthropic, OpenAI, OpenRouter, or MiniMax (with a live test call)
 4. **Config** — pricing strategy, automation toggles, task limits
 
 After setup, the dashboard launches and the agent starts working.
@@ -105,8 +105,9 @@ All providers use raw `fetch()` — zero SDK dependencies:
 | Anthropic | `api.anthropic.com/v1/messages` | `claude-sonnet-4-20250514` |
 | OpenAI | `api.openai.com/v1/chat/completions` | `gpt-4o` |
 | OpenRouter | `openrouter.ai/api/v1/chat/completions` | `openai/gpt-5.4` |
+| MiniMax | `api.minimax.io/v1/chat/completions` | `MiniMax-M2.7` |
 
-OpenAI and OpenRouter use a shared adapter that translates between Anthropic's native tool-use format and OpenAI's `tool_calls` format.
+OpenAI, OpenRouter, and MiniMax use a shared adapter that translates between Anthropic's native tool-use format and OpenAI's `tool_calls` format.
 
 ## Self-Learning
 
