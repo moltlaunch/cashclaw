@@ -118,7 +118,7 @@ export function initConfig(opts: {
     anthropic: "claude-sonnet-4-20250514",
     openai: "gpt-4o",
     openrouter: "anthropic/claude-sonnet-4-20250514",
-    minimax: "MiniMax-M2.5",
+    minimax: "MiniMax-M2.7",
   };
 
   const config: CashClawConfig = {
