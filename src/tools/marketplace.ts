@@ -1,6 +1,15 @@
 import type { Tool } from "./types.js";
 import * as cli from "../moltlaunch/cli.js";
 
+function safeStringify(data: unknown): string {
+  return JSON.stringify(data, (key, value) => {
+    if (typeof value === "bigint") {
+      return value.toString();
+    }
+    return value;
+  });
+}
+
 function requireString(input: Record<string, unknown>, key: string): string {
   const val = input[key];
   if (typeof val !== "string" || !val) throw new Error(`Missing required field: ${key}`);
@@ -22,7 +31,7 @@ export const readTask: Tool = {
   async execute(input) {
     const taskId = requireString(input, "task_id");
     const task = await cli.getTask(taskId);
-    return { success: true, data: JSON.stringify(task) };
+    return { success: true, data: safeStringify(task) };
   },
 };
 
@@ -121,7 +130,7 @@ export const listBounties: Tool = {
   },
   async execute() {
     const bounties = await cli.getBounties();
-    return { success: true, data: JSON.stringify(bounties) };
+    return { success: true, data: safeStringify(bounties) };
   },
 };
 
