@@ -17,6 +17,7 @@ import {
   logActivity,
 } from "./utility.js";
 import { agentcashFetch, agentcashBalance } from "./agentcash.js";
+import { readFile, writeFile, listDirectory } from "./filesystem.js";
 
 const BASE_TOOLS: Tool[] = [
   readTask,
@@ -32,6 +33,8 @@ const BASE_TOOLS: Tool[] = [
   logActivity,
 ];
 
+const FILESYSTEM_TOOLS: Tool[] = [readFile, writeFile, listDirectory];
+
 const AGENTCASH_TOOLS: Tool[] = [
   agentcashFetch,
   agentcashBalance,
@@ -44,8 +47,8 @@ let cachedToolMap: Map<string, Tool> | null = null;
 function buildToolMap(config: CashClawConfig): Map<string, Tool> {
   if (cachedConfig === config && cachedToolMap) return cachedToolMap;
   const tools = config.agentCashEnabled
-    ? [...BASE_TOOLS, ...AGENTCASH_TOOLS]
-    : BASE_TOOLS;
+    ? [...BASE_TOOLS, ...FILESYSTEM_TOOLS, ...AGENTCASH_TOOLS]
+    : [...BASE_TOOLS, ...FILESYSTEM_TOOLS];
   cachedToolMap = new Map(tools.map((t) => [t.definition.name, t]));
   cachedConfig = config;
   return cachedToolMap;
