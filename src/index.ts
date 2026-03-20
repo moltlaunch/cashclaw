@@ -1,32 +1,33 @@
-import { startAgent } from "./agent.js";
+#!/usr/bin/env node
+
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 async function main() {
-  console.log("Starting CashClaw...");
+  // Check if we're running as CLI (node script) vs imported as module
+  const isMainModule = process.argv[1] === __filename ||
+                      process.argv[1]?.endsWith('src/index.ts') ||
+                      process.argv[1]?.endsWith('dist/index.js');
 
-  const server = await startAgent();
-
-  // Open browser
-  const url = "http://localhost:3777";
-  const { execFile: execFileCb } = await import("node:child_process");
-  const opener = process.platform === "darwin"
-    ? "open"
-    : process.platform === "win32"
-      ? "start"
-      : "xdg-open";
-  execFileCb(opener, [url], () => {});
-
-  // Graceful shutdown
-  const shutdown = () => {
-    console.log("\nShutting down...");
-    server.close();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  if (isMainModule) {
+    // Running as CLI - delegate to CLI handler
+    const { runCLI } = await import('./cli/index.js');
+    await runCLI();
+  }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// Only run main if this is the entry point
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error('Error:', error);
+    process.exit(1);
+  });
+}
+
+export * from './config.js';
+export * from './loop/index.js';
+export * from './llm/types.js';
+export * from './moltlaunch/types.js';
