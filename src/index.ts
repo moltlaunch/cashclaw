@@ -1,6 +1,14 @@
 import { startAgent } from "./agent.js";
+import { registerCommand } from "./commands/register.js";
 
 async function main() {
+  // Check if this is a register command
+  const args = process.argv.slice(2);
+  if (args[0] === "register") {
+    await registerCommand();
+    return;
+  }
+
   console.log("Starting CashClaw...");
 
   const server = await startAgent();
