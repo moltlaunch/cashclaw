@@ -8,13 +8,18 @@
   "bin": {
     "cashclaw": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "dist/ui/"
+  ],
   "scripts": {
     "build": "tsup",
     "build:ui": "vite build",
     "build:all": "tsup && vite build",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build:all"
   },
   "dependencies": {
     "minisearch": "^7.2.0",
