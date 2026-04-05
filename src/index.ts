@@ -1,5 +1,12 @@
 import { startAgent } from "./agent.js";
 
+// Respect HTTPS_PROXY / ALL_PROXY for all fetch() calls (same as Claude Code)
+const _proxyUrl = process.env.HTTPS_PROXY || process.env.ALL_PROXY;
+if (_proxyUrl) {
+  const { ProxyAgent, setGlobalDispatcher } = await import("undici");
+  setGlobalDispatcher(new ProxyAgent(_proxyUrl));
+}
+
 async function main() {
   console.log("Starting CashClaw...");
 
